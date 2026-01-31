@@ -1,4 +1,3 @@
-// app.js - Main page logic
 import { characters } from "./data.js";
 
 const characterList = document.getElementById("character-list");
@@ -6,7 +5,6 @@ const filterPlaystyle = document.getElementById("filter-playstyle");
 const filterDifficulty = document.getElementById("filter-difficulty");
 const sortSelect = document.getElementById("sort-characters");
 
-// Function to create card HTML for one character
 function createCard(character) {
   return `
     <div 
@@ -28,24 +26,18 @@ function createCard(character) {
   `;
 }
 
-// Render characters with animation
 function renderCharacters(charArray) {
-  // Fade out before replacing cards
   characterList.style.opacity = 0;
 
   setTimeout(() => {
-    // Inject cards
     characterList.innerHTML = charArray.map(createCard).join("");
-
-    // Fade in container
     characterList.style.opacity = 1;
   }, 150);
 }
 
-// Function to sort characters
 function sortCharacters(charArray) {
   const sortValue = sortSelect.value;
-  let sorted = [...charArray]; // clone array
+  let sorted = [...charArray];
 
   switch (sortValue) {
     case "name-asc":
@@ -75,11 +67,9 @@ function sortCharacters(charArray) {
   return sorted;
 }
 
-// Update render with filters and sorting
 function updateRender() {
   let filtered = characters;
 
-  // Apply filters
   const playstyleValue = filterPlaystyle.value;
   const difficultyValue = filterDifficulty.value;
 
@@ -91,21 +81,17 @@ function updateRender() {
     filtered = filtered.filter(c => c.difficulty.toLowerCase() === difficultyValue);
   }
 
-  // Apply sorting
   const finalArray = sortCharacters(filtered);
 
   renderCharacters(finalArray);
 }
 
-// Click handler: go to character page
 window.goToCharacter = function (id) {
   window.location.href = `character.html?id=${id}`;
 }
 
-// Event listeners
 filterPlaystyle.addEventListener("change", updateRender);
 filterDifficulty.addEventListener("change", updateRender);
 sortSelect.addEventListener("change", updateRender);
 
-// Initial render
 renderCharacters(characters);

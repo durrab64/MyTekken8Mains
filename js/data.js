@@ -1,4 +1,3 @@
-// data.js
 import { Character } from "./Character.js";
 
 export const characters = [

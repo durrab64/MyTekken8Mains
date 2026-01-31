@@ -1,11 +1,9 @@
-/* CSS RESET */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-/* THEME VARIABLES */
 :root {
   --bg: #0a0a0a;
   --bg-gradient: linear-gradient(135deg, #0a0a0a 0%, #1a0a0a 100%);
@@ -21,7 +19,6 @@
   --shadow-hover: 0 20px 48px rgba(220, 38, 38, 0.4);
 }
 
-/* BASE */
 body {
   font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg);
@@ -31,7 +28,6 @@ body {
   line-height: 1.6;
 }
 
-/* HEADER */
 .header {
   text-align: center;
   padding: 4rem 1.5rem 2.5rem;
@@ -55,14 +51,12 @@ body {
   font-weight: 400;
 }
 
-/* MAIN CONTAINER */
 .container {
   max-width: 1400px;
   margin: auto;
   padding: 2rem 1.5rem;
 }
 
-/* FILTER CONTROLS */
 .controls {
   display: flex;
   gap: 1rem;
@@ -95,7 +89,6 @@ body {
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
-/* CHARACTER GRID */
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -103,7 +96,6 @@ body {
   transition: opacity 0.3s ease;
 }
 
-/* CHARACTER CARD */
 .card {
   background: var(--card);
   border-radius: var(--radius);
@@ -116,11 +108,9 @@ body {
   opacity: 0;
   transform: translateY(20px);
   animation: cardSlideIn 0.6s forwards;
-  /* Add dark gradient background to blend with images */
   background: linear-gradient(135deg, var(--card) 0%, rgba(10, 10, 10, 0.95) 100%);
 }
 
-/* Staggered animation */
 .card:nth-child(1) {
   animation-delay: 0.1s;
 }
@@ -177,7 +167,6 @@ body {
   opacity: 1;
 }
 
-/* CARD IMAGE */
 .card-img {
   width: 100%;
   height: 200px;
@@ -189,7 +178,6 @@ body {
   transform: scale(0.95);
   transition: all 0.4s ease;
   border: 3px solid rgba(255, 255, 255, 0.1);
-  /* Add dark background behind image to minimize white background */
   background: radial-gradient(circle, rgba(26, 16, 16, 0.8) 0%, rgba(10, 10, 10, 1) 100%);
   padding: 0;
 }
@@ -204,7 +192,6 @@ body {
   border-color: inherit;
 }
 
-/* CARD CONTENT */
 .card-name {
   font-size: 1.5rem;
   margin-bottom: 0.5rem;
@@ -227,7 +214,6 @@ body {
   font-weight: 500;
 }
 
-/* CHARACTER DETAIL PAGE */
 .char-container {
   max-width: 1200px;
   margin: 2rem auto;
@@ -260,7 +246,6 @@ body {
   max-width: 450px;
   height: auto;
   background: transparent;
-  /* Enhanced shadow and brightness for better visibility */
   filter: drop-shadow(0 10px 30px rgba(220, 38, 38, 0.4)) brightness(1.05);
 }
 
@@ -340,7 +325,6 @@ body {
   line-height: 1.7;
 }
 
-/* BACK BUTTON */
 .char-back-btn {
   padding: 0.75rem 1.5rem;
   background: var(--accent);
@@ -365,7 +349,6 @@ body {
   transform: translateY(-1px) scale(1.02);
 }
 
-/* ANIMATIONS */
 @keyframes cardSlideIn {
   to {
     opacity: 1;
@@ -401,7 +384,6 @@ body {
   }
 }
 
-/* RESPONSIVE DESIGN */
 @media (max-width: 768px) {
   .header {
     padding: 3rem 1rem 2rem;

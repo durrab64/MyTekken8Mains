@@ -1,28 +1,14 @@
 import { characters } from "./data.js";
 
-/* ==============================
-   Get character ID from URL
-================================ */
 const params = new URLSearchParams(window.location.search);
 const charId = params.get("id");
 
-/* ==============================
-   DOM Elements
-================================ */
 const charName = document.getElementById("char-name");
 const charDetails = document.getElementById("char-details");
 
-/* ==============================
-   Find base character (MODEL)
-================================ */
 const baseCharacter = characters.find(c => c.id === charId);
 
-/* ==============================
-   MOCK API (Lore + Image + Description)
-   Simulates real backend call
-================================ */
 async function fetchCharacterExtraData(id) {
-  // Enhanced character data with detailed descriptions
   const mockApiData = {
     jin: {
       lore: "A conflicted fighter battling the Devil Gene within him, Jin Kazama seeks to end the cursed Mishima bloodline once and for all. Torn between his humanity and demonic power, he fights with precision and devastating force.",
@@ -66,7 +52,6 @@ async function fetchCharacterExtraData(id) {
     }
   };
 
-  // simulate network delay
   return new Promise((resolve) => {
     setTimeout(() => {
       resolve(mockApiData[id]);
@@ -74,9 +59,6 @@ async function fetchCharacterExtraData(id) {
   });
 }
 
-/* ==============================
-   Render Character Page
-================================ */
 async function renderCharacter() {
   if (!baseCharacter) {
     charDetails.innerHTML = `<p>Character not found.</p>`;
@@ -85,7 +67,6 @@ async function renderCharacter() {
 
   charName.textContent = baseCharacter.name;
 
-  // loading state
   charDetails.innerHTML = `<p style="text-align: center; color: var(--muted);">Loading character data...</p>`;
 
   try {
@@ -150,14 +131,8 @@ async function renderCharacter() {
   }
 }
 
-/* ==============================
-   Navigation
-================================ */
 window.goBack = function () {
   window.location.href = "index.html";
 };
 
-/* ==============================
-   Init
-================================ */
 renderCharacter();
