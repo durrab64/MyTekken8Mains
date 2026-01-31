@@ -1,0 +1,451 @@
+/* CSS RESET */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* THEME VARIABLES */
+:root {
+  --bg: #0a0a0a;
+  --bg-gradient: linear-gradient(135deg, #0a0a0a 0%, #1a0a0a 100%);
+  --card: #1a1010;
+  --card-hover: #251515;
+  --text: #e6e8f0;
+  --muted: #9a8888;
+  --accent: #dc2626;
+  --accent-secondary: #991b1b;
+  --accent-glow: rgba(220, 38, 38, 0.3);
+  --radius: 16px;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --shadow-hover: 0 20px 48px rgba(220, 38, 38, 0.4);
+}
+
+/* BASE */
+body {
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  background: var(--bg-gradient);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.6;
+}
+
+/* HEADER */
+.header {
+  text-align: center;
+  padding: 4rem 1.5rem 2.5rem;
+  background: linear-gradient(180deg, rgba(220, 38, 38, 0.15) 0%, transparent 100%);
+}
+
+.header h1 {
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  margin-bottom: 0.75rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--text) 0%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.02em;
+}
+
+.header p {
+  color: var(--muted);
+  font-size: 1.125rem;
+  font-weight: 400;
+}
+
+/* MAIN CONTAINER */
+.container {
+  max-width: 1400px;
+  margin: auto;
+  padding: 2rem 1.5rem;
+}
+
+/* FILTER CONTROLS */
+.controls {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 2.5rem;
+  justify-content: center;
+}
+
+.controls select {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  outline: none;
+}
+
+.controls select:hover {
+  border-color: var(--accent);
+  background: var(--card-hover);
+  transform: translateY(-2px);
+}
+
+.controls select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* CHARACTER GRID */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 2rem;
+  transition: opacity 0.3s ease;
+}
+
+/* CHARACTER CARD */
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  border: 2px solid transparent;
+  position: relative;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(20px);
+  animation: cardSlideIn 0.6s forwards;
+  /* Add dark gradient background to blend with images */
+  background: linear-gradient(135deg, var(--card) 0%, rgba(10, 10, 10, 0.95) 100%);
+}
+
+/* Staggered animation */
+.card:nth-child(1) {
+  animation-delay: 0.1s;
+}
+
+.card:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.card:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+.card:nth-child(4) {
+  animation-delay: 0.25s;
+}
+
+.card:nth-child(5) {
+  animation-delay: 0.3s;
+}
+
+.card:nth-child(6) {
+  animation-delay: 0.35s;
+}
+
+.card:nth-child(7) {
+  animation-delay: 0.4s;
+}
+
+.card:nth-child(8) {
+  animation-delay: 0.45s;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, var(--accent-glow) 0%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.card:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: var(--shadow-hover);
+  border-color: var(--accent);
+  background: var(--card-hover);
+}
+
+.card:hover::before {
+  opacity: 1;
+}
+
+/* CARD IMAGE */
+.card-img {
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+  object-position: center top;
+  border-radius: 50%;
+  margin-bottom: 1rem;
+  opacity: 0;
+  transform: scale(0.95);
+  transition: all 0.4s ease;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  /* Add dark background behind image to minimize white background */
+  background: radial-gradient(circle, rgba(26, 16, 16, 0.8) 0%, rgba(10, 10, 10, 1) 100%);
+  padding: 0;
+}
+
+.card-img.loaded {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.card:hover .card-img {
+  transform: scale(1.05);
+  border-color: inherit;
+}
+
+/* CARD CONTENT */
+.card-name {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.card .playstyle {
+  color: var(--accent);
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.card .difficulty {
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* CHARACTER DETAIL PAGE */
+.char-container {
+  max-width: 1200px;
+  margin: 2rem auto;
+  padding: 2rem;
+}
+
+.char-detail-wrapper {
+  display: flex;
+  gap: 3rem;
+  align-items: flex-start;
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 3rem;
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  box-shadow: var(--shadow);
+}
+
+.char-img-container {
+  flex: 0 0 45%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  opacity: 0;
+  transform: translateX(-30px);
+  animation: slideInLeft 0.8s forwards;
+}
+
+.char-img {
+  width: 100%;
+  max-width: 450px;
+  height: auto;
+  background: transparent;
+  /* Enhanced shadow and brightness for better visibility */
+  filter: drop-shadow(0 10px 30px rgba(220, 38, 38, 0.4)) brightness(1.05);
+}
+
+.char-content {
+  flex: 1;
+  opacity: 0;
+  transform: translateX(30px);
+  animation: slideInRight 0.8s forwards;
+  animation-delay: 0.2s;
+}
+
+.char-content h2 {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+
+.char-meta {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 2px solid rgba(220, 38, 38, 0.2);
+}
+
+.char-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.char-meta-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+}
+
+.char-meta-value {
+  font-size: 1.25rem;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.char-description {
+  margin-bottom: 1.5rem;
+}
+
+.char-description h3 {
+  font-size: 1.25rem;
+  color: var(--text);
+  margin-bottom: 0.75rem;
+  font-weight: 700;
+}
+
+.char-description p {
+  font-size: 1.05rem;
+  line-height: 1.8;
+  color: var(--muted);
+  margin-bottom: 1rem;
+}
+
+.char-lore {
+  background: rgba(220, 38, 38, 0.1);
+  border-left: 4px solid var(--accent);
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-top: 1.5rem;
+}
+
+.char-lore p {
+  color: var(--text);
+  font-style: italic;
+  line-height: 1.7;
+}
+
+/* BACK BUTTON */
+.char-back-btn {
+  padding: 0.75rem 1.5rem;
+  background: var(--accent);
+  color: var(--text);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  margin-top: 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 16px var(--accent-glow);
+}
+
+.char-back-btn:hover {
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: 0 8px 24px var(--accent-glow);
+  background: #8f6af5;
+}
+
+.char-back-btn:active {
+  transform: translateY(-1px) scale(1.02);
+}
+
+/* ANIMATIONS */
+@keyframes cardSlideIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInUpText {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* RESPONSIVE DESIGN */
+@media (max-width: 768px) {
+  .header {
+    padding: 3rem 1rem 2rem;
+  }
+
+  .header h1 {
+    font-size: 2rem;
+  }
+
+  .container {
+    padding: 1.5rem 1rem;
+  }
+
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .controls {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .controls select {
+    width: 100%;
+  }
+
+  .char-detail-wrapper {
+    flex-direction: column;
+    padding: 2rem;
+    gap: 2rem;
+  }
+
+  .char-img-container {
+    flex: 1;
+  }
+
+  .char-content h2 {
+    font-size: 2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
