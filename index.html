@@ -27,6 +27,9 @@
 </head>
 
 <body data-env="jin">
+  <!-- Decorative visual-engine canvas. Tier 0 (CSS atmospheres) in P5.1; aria-hidden always. -->
+  <canvas id="fx" class="fx-canvas" aria-hidden="true" hidden></canvas>
+
   <a class="skip-link" href="#roster">Skip to the roster</a>
 
   <header class="nav">
@@ -313,6 +316,7 @@
   <script type="module" src="js/hero.js"></script>
   <script type="module" src="js/roster.js"></script>
   <script type="module" src="js/stage.js"></script>
+  <script type="module" src="js/fx/engine.js"></script>
 </body>
 
 </html>

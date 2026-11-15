@@ -988,3 +988,58 @@ body::before {
   color: var(--text);
   opacity: 0.96;
 }
+
+/* ============================================================
+   PHASE 5.1 — Tier 0: static CSS atmospheres + engine canvas
+   CSS owns grain + vignette (body::after / body::before). The
+   shader never re-draws them. These backgrounds ARE the Tier 0
+   experience (no WebGL anywhere).
+   ============================================================ */
+
+.fx-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;                    /* below content, above nothing else */
+  pointer-events: none;
+}
+
+/* Audited stacking rule (Phase 5 spec, decision 3): content above canvas.
+   Nav (50), skip link (100), grain/vignette (69/70) unchanged. */
+main, .hero, .stage, #roster, #about, .footer {
+  position: relative;
+  z-index: 1;
+}
+
+/* Environment ambient tints — deliberately quiet; type contrast is sacred. */
+body[data-env='jin'] {
+  background:
+    radial-gradient(130% 70% at 50% -12%, rgba(220, 38, 38, 0.16) 0%, transparent 58%),
+    radial-gradient(120% 60% at 50% 112%, rgba(220, 38, 38, 0.10) 0%, transparent 62%),
+    var(--bg);
+}
+body[data-env='claudio'] {
+  background:
+    radial-gradient(130% 70% at 50% -12%, rgba(125, 211, 252, 0.13) 0%, transparent 58%),
+    radial-gradient(120% 60% at 50% 112%, rgba(216, 180, 90, 0.09) 0%, transparent 62%),
+    var(--bg);
+}
+body[data-env='dragunov'] {
+  background:
+    radial-gradient(130% 70% at 50% -12%, rgba(157, 176, 140, 0.12) 0%, transparent 58%),
+    radial-gradient(130% 62% at 50% 112%, rgba(120, 132, 116, 0.12) 0%, transparent 64%),
+    var(--bg);
+}
+body[data-env='victor'] {
+  background:
+    radial-gradient(110% 58% at 50% -10%, rgba(216, 205, 180, 0.14) 0%, transparent 56%),
+    radial-gradient(120% 60% at 50% 112%, rgba(216, 205, 180, 0.07) 0%, transparent 62%),
+    var(--bg);
+}
+body[data-env='lars'] {
+  background:
+    radial-gradient(120% 66% at 50% -12%, rgba(103, 232, 249, 0.13) 0%, transparent 58%),
+    radial-gradient(120% 60% at 50% 112%, rgba(103, 232, 249, 0.08) 0%, transparent 62%),
+    var(--bg);
+}
