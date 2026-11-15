@@ -1,0 +1,59 @@
+/* ============================================================
+   SLEDGE — My Tekken 8 Mains
+   Design tokens (Phase 2) — single source for the visual system.
+   Palette + type per docs/spec.md Rev 3 §3 / §4 (approved).
+   ============================================================ */
+
+:root {
+  /* --- Surfaces --- */
+  --bg: #0B0B0C;
+  --panel: #131314;
+  --panel-2: #1A1A1C;
+
+  /* --- Accent: SLEDGE crimson (kept from the original site) --- */
+  --accent: #DC2626;
+  --accent-deep: #991B1B;
+  --accent-strong: #FF5A4E;            /* small-text accent on near-black — 6.4:1 */
+  --accent-soft: rgba(220, 38, 38, 0.14);
+  --accent-glow: rgba(220, 38, 38, 0.35);
+
+  /* --- Per-character atmospheres (spec Rev 3 §3.5) --- */
+  --jin-accent: #DC2626;
+  --jin-glow: rgba(220, 38, 38, 0.42);
+  --claudio-accent: #7DD3FC;
+  --claudio-glow: rgba(125, 211, 252, 0.34);
+  --dragunov-accent: #9DB08C;
+  --dragunov-glow: rgba(157, 176, 140, 0.32);
+  --victor-accent: #D8CDB4;
+  --victor-glow: rgba(216, 205, 180, 0.32);
+  --lars-accent: #67E8F9;
+  --lars-glow: rgba(103, 232, 249, 0.32);
+
+  /* --- Type --- */
+  --text: #EDE6DA;                     /* warm ivory */
+  --muted: #A8A196;                    /* lifted warm grey — AA on --bg */
+  --faint: #948D83;                    /* de-emphasised labels — ≥ 4.5:1 on --bg (WCAG AA) */
+
+  --font-display: 'Anton', 'Archivo Black', Impact, system-ui, sans-serif;
+  --font-body: 'Barlow', 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  /* --- Lines & elevation --- */
+  --line: rgba(237, 230, 218, 0.09);
+  --line-strong: rgba(237, 230, 218, 0.18);
+  --shadow-art: 0 42px 90px rgba(0, 0, 0, 0.62);
+
+  /* --- Layout --- */
+  --max: 1360px;
+  --gutter: clamp(1.1rem, 4vw, 3rem);
+  --nav-h: 4.25rem;
+
+  /* --- Motion --- */
+  --dur: 0.35s;                        /* standard transition envelope (spec Rev 3 §3.4) */
+  --ease: cubic-bezier(0.22, 0.61, 0.21, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur: 0.01ms;
+  }
+}

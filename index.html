@@ -4,52 +4,276 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description"
-    content="My Tekken 8 main characters showcase - filter and sort by playstyle and difficulty. Featuring Jin Kazama, Claudio, Dragunov, Victor, and Lars.">
-  <meta name="keywords"
-    content="Tekken 8, fighting games, character roster, Jin Kazama, Claudio Serafino, Sergei Dragunov, Victor Chevalier, Lars Alexandersson">
-  <meta name="author" content="Tekken 8 Player">
-  <title>My Tekken 8 Mains - Character Roster</title>
-  <link rel="stylesheet" href="css/style.css" />
+  <meta name="description" content="SLEDGE — My Tekken 8 mains showcase. Jin Kazama, Claudio Serafino, Sergei Dragunov, Victor Chevalier and Lars Alexandersson: their playstyles, difficulties and how they fit together. No rank claims, no tier lists — the roster, not a résumé.">
+  <meta name="author" content="Sledge">
+  <meta name="theme-color" content="#0B0B0C">
+  <meta name="keywords" content="Tekken 8, Sledge, character roster, Jin Kazama, Claudio Serafino, Sergei Dragunov, Victor Chevalier, Lars Alexandersson">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="SLEDGE — My Tekken 8 Mains">
+  <meta property="og:description" content="My Tekken 8 mains — Jin, Claudio, Dragunov, Victor and Lars — their playstyles, difficulties and how they fit together. The roster, not a résumé.">
+  <meta property="og:image" content="assets/images/fullbody/jin_fullbody.png">
+  <meta property="og:image:alt" content="Jin Kazama, Tekken 8 render">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <title>SLEDGE — My Tekken 8 Mains</title>
+
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/style.css">
 </head>
 
-<body>
-  <header class="header">
-    <h1> My Tekken 8 Mains </h1>
-    <p>Characters I play and how I play them</p>
+<body data-env="jin">
+  <a class="skip-link" href="#roster">Skip to the roster</a>
+
+  <header class="nav">
+    <div class="nav-inner">
+      <a class="wordmark" href="#top">SLEDGE</a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#roster">Roster</a>
+        <a href="#about">About</a>
+      </nav>
+    </div>
   </header>
 
-  <main class="container">
-    <section class="controls">
-      <select id="filter-playstyle">
-        <option value="all">All Playstyles</option>
-        <option value="aggressive">Aggressive</option>
-        <option value="balanced">Balanced</option>
-        <option value="defensive">Defensive</option>
-      </select>
+  <main id="top">
 
-      <select id="filter-difficulty">
-        <option value="all">All Difficulties</option>
-        <option value="easy">Easy</option>
-        <option value="medium">Medium</option>
-        <option value="hard">Hard</option>
-      </select>
+    <!-- ============ HERO ============ -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-env" aria-hidden="true"></div>
+      <div class="ember-field" aria-hidden="true"></div>
 
-      <select id="sort-characters">
-        <option value="default">Default</option>
-        <option value="name-asc">Name ↑</option>
-        <option value="name-desc">Name ↓</option>
-        <option value="difficulty-asc">Difficulty ↑</option>
-        <option value="difficulty-desc">Difficulty ↓</option>
-      </select>
+      <div class="hero-inner">
+        <p class="eyebrow hero-eyebrow rise" style="--rd: 0.05s">Tekken 8 · Personal Roster</p>
+        <h1 id="hero-title" class="wordmark-xl rise" style="--rd: 0.14s">SLEDGE</h1>
+        <p class="hero-impression rise" style="--rd: 0.3s">A Tekken 8 devotee whose five-character roster spans the whole game — the disciplined all-rounder (Jin), the radiant aggressor (Claudio), the relentless commando (Dragunov), the cerebral tactician (Victor), and the electrifying rebel (Lars).</p>
+        <div class="hero-cta rise" style="--rd: 0.44s">
+          <a class="btn btn-primary" href="#roster">View the roster <span class="arr" aria-hidden="true">&rarr;</span></a>
+          <a class="btn btn-ghost" href="#jin">Meet my main <span class="arr" aria-hidden="true">&rarr;</span></a>
+        </div>
+      </div>
+
+      <a class="scroll-cue rise" style="--rd: 0.8s" href="#roster" aria-label="Scroll to the roster">
+        <svg width="14" height="18" viewBox="0 0 14 18" fill="none" aria-hidden="true">
+          <path d="M7 1v13M2.5 10L7 14.5 11.5 10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Scroll
+      </a>
     </section>
 
+    <!-- ============ THE ARCHIVE (roster) ============ -->
+    <section id="roster" class="section roster" aria-labelledby="roster-title">
+      <div class="section-head">
+        <p class="eyebrow">The Archive</p>
+        <h2 id="roster-title" class="section-title">THE<br>ROSTER</h2>
+        <p class="section-sub">Open any character to enter the stage.</p>
+      </div>
 
-    <section id="character-list" class="grid">
+      <div class="roster-grid">
+        <!-- 01 · JIN — the primary main -->
+        <a class="roster-entry roster-entry--feature" href="#jin">
+          <img class="entry-art" src="assets/images/fullbody/jin_fullbody.png" alt="Jin Kazama, full-body Tekken 8 render" width="800" height="941" loading="lazy" decoding="async">
+          <span class="entry-info">
+            <span class="status-badge" data-status="main">Main</span>
+            <span class="entry-index">01</span>
+            <span class="entry-name">Jin<br>Kazama</span>
+            <span class="entry-meta"><span><strong>Balanced</strong></span><span>Medium difficulty</span></span>
+          </span>
+        </a>
+
+        <!-- 02–05 -->
+        <div class="roster-side">
+          <a class="roster-entry roster-entry--row" href="#claudio">
+            <img class="entry-art" src="assets/images/fullbody/claudio_fullbody.png" alt="Claudio Serafino, full-body Tekken 8 render" width="800" height="941" loading="lazy" decoding="async">
+            <span class="entry-info">
+              <span class="status-badge" data-status="secondary">Secondary</span>
+              <span class="entry-index">02</span>
+              <span class="entry-name">Claudio<br>Serafino</span>
+              <span class="entry-meta"><span><strong>Aggressive</strong></span><span>Medium difficulty</span></span>
+            </span>
+            <span class="entry-arrow" aria-hidden="true">&rarr;</span>
+          </a>
+
+          <a class="roster-entry roster-entry--row" href="#dragunov">
+            <img class="entry-art" src="assets/images/fullbody/dragunov_fullbody.png" alt="Sergei Dragunov, full-body Tekken 8 render" width="800" height="941" loading="lazy" decoding="async">
+            <span class="entry-info">
+              <span class="status-badge" data-status="lab">Lab</span>
+              <span class="entry-index">03</span>
+              <span class="entry-name">Sergei<br>Dragunov</span>
+              <span class="entry-meta"><span><strong>Aggressive</strong></span><span>Hard difficulty</span></span>
+            </span>
+            <span class="entry-arrow" aria-hidden="true">&rarr;</span>
+          </a>
+
+          <a class="roster-entry roster-entry--row" href="#victor">
+            <img class="entry-art" src="assets/images/fullbody/victor_fullbody.png" alt="Victor Chevalier, full-body Tekken 8 render" width="800" height="941" loading="lazy" decoding="async">
+            <span class="entry-info">
+              <span class="status-badge" data-status="lab">Lab</span>
+              <span class="entry-index">04</span>
+              <span class="entry-name">Victor<br>Chevalier</span>
+              <span class="entry-meta"><span><strong>Balanced</strong></span><span>Hard difficulty</span></span>
+            </span>
+            <span class="entry-arrow" aria-hidden="true">&rarr;</span>
+          </a>
+
+          <a class="roster-entry roster-entry--row" href="#lars">
+            <img class="entry-art" src="assets/images/fullbody/lars_fullbody.png" alt="Lars Alexandersson, full-body Tekken 8 render" width="800" height="941" loading="lazy" decoding="async">
+            <span class="entry-info">
+              <span class="status-badge" data-status="secondary">Secondary</span>
+              <span class="entry-index">05</span>
+              <span class="entry-name">Lars<br>Alexandersson</span>
+              <span class="entry-meta"><span><strong>Aggressive</strong></span><span>Medium difficulty</span></span>
+            </span>
+            <span class="entry-arrow" aria-hidden="true">&rarr;</span>
+          </a>
+        </div>
+      </div>
     </section>
+
+    <!-- ============ STAGES ============ -->
+
+    <section id="jin" class="stage stage--jin" aria-labelledby="jin-name">
+      <div class="stage-inner">
+        <div class="stage-art">
+          <img src="assets/images/fullbody/jin_fullbody.png" alt="Jin Kazama, full-body Tekken 8 render" width="800" height="941" loading="lazy" decoding="async">
+        </div>
+        <div class="stage-body">
+          <p class="eyebrow stage-eyebrow">Main</p>
+          <h2 id="jin-name" class="stage-name">Jin<br>Kazama</h2>
+          <dl class="spec-sheet">
+            <div><dt>Status</dt><dd>Main</dd></div>
+            <div><dt>Playstyle</dt><dd>Balanced</dd></div>
+            <div><dt>Difficulty</dt><dd>Medium</dd></div>
+            <div><dt>Execution</dt><dd>Medium</dd></div>
+            <div><dt>Signature</dt><dd>All-rounder</dd></div>
+          </dl>
+          <nav class="stage-nav" aria-label="Character stages">
+            <a rel="prev" href="#lars">&larr; Lars</a>
+            <span class="stage-index" aria-hidden="true">01 / 05</span>
+            <a rel="next" href="#claudio">Claudio &rarr;</a>
+          </nav>
+        </div>
+      </div>
+    </section>
+
+    <section id="claudio" class="stage stage--claudio stage--flip" aria-labelledby="claudio-name">
+      <div class="stage-inner">
+        <div class="stage-art">
+          <img src="assets/images/fullbody/claudio_fullbody.png" alt="Claudio Serafino, full-body Tekken 8 render" width="800" height="941" loading="lazy" decoding="async">
+        </div>
+        <div class="stage-body">
+          <p class="eyebrow stage-eyebrow">Secondary</p>
+          <h2 id="claudio-name" class="stage-name">Claudio<br>Serafino</h2>
+          <dl class="spec-sheet">
+            <div><dt>Status</dt><dd>Secondary</dd></div>
+            <div><dt>Playstyle</dt><dd>Aggressive</dd></div>
+            <div><dt>Difficulty</dt><dd>Medium</dd></div>
+            <div><dt>Execution</dt><dd>Low</dd></div>
+            <div><dt>Signature</dt><dd>Easy pressure</dd></div>
+          </dl>
+          <nav class="stage-nav" aria-label="Character stages">
+            <a rel="prev" href="#jin">&larr; Jin</a>
+            <span class="stage-index" aria-hidden="true">02 / 05</span>
+            <a rel="next" href="#dragunov">Dragunov &rarr;</a>
+          </nav>
+        </div>
+      </div>
+    </section>
+
+    <section id="dragunov" class="stage stage--dragunov" aria-labelledby="dragunov-name">
+      <div class="stage-inner">
+        <div class="stage-art">
+          <img src="assets/images/fullbody/dragunov_fullbody.png" alt="Sergei Dragunov, full-body Tekken 8 render" width="800" height="941" loading="lazy" decoding="async">
+        </div>
+        <div class="stage-body">
+          <p class="eyebrow stage-eyebrow">Lab</p>
+          <h2 id="dragunov-name" class="stage-name">Sergei<br>Dragunov</h2>
+          <dl class="spec-sheet">
+            <div><dt>Status</dt><dd>Lab</dd></div>
+            <div><dt>Playstyle</dt><dd>Aggressive</dd></div>
+            <div><dt>Difficulty</dt><dd>Hard</dd></div>
+            <div><dt>Execution</dt><dd>High</dd></div>
+            <div><dt>Signature</dt><dd>Damage</dd></div>
+          </dl>
+          <nav class="stage-nav" aria-label="Character stages">
+            <a rel="prev" href="#claudio">&larr; Claudio</a>
+            <span class="stage-index" aria-hidden="true">03 / 05</span>
+            <a rel="next" href="#victor">Victor &rarr;</a>
+          </nav>
+        </div>
+      </div>
+    </section>
+
+    <section id="victor" class="stage stage--victor stage--flip" aria-labelledby="victor-name">
+      <div class="stage-inner">
+        <div class="stage-art">
+          <img src="assets/images/fullbody/victor_fullbody.png" alt="Victor Chevalier, full-body Tekken 8 render" width="800" height="941" loading="lazy" decoding="async">
+        </div>
+        <div class="stage-body">
+          <p class="eyebrow stage-eyebrow">Lab</p>
+          <h2 id="victor-name" class="stage-name">Victor<br>Chevalier</h2>
+          <dl class="spec-sheet">
+            <div><dt>Status</dt><dd>Lab</dd></div>
+            <div><dt>Playstyle</dt><dd>Balanced</dd></div>
+            <div><dt>Difficulty</dt><dd>Hard</dd></div>
+            <div><dt>Execution</dt><dd>High</dd></div>
+            <div><dt>Signature</dt><dd>Mix-up &amp; wall carry</dd></div>
+          </dl>
+          <nav class="stage-nav" aria-label="Character stages">
+            <a rel="prev" href="#dragunov">&larr; Dragunov</a>
+            <span class="stage-index" aria-hidden="true">04 / 05</span>
+            <a rel="next" href="#lars">Lars &rarr;</a>
+          </nav>
+        </div>
+      </div>
+    </section>
+
+    <section id="lars" class="stage stage--lars" aria-labelledby="lars-name">
+      <div class="stage-inner">
+        <div class="stage-art">
+          <img src="assets/images/fullbody/lars_fullbody.png" alt="Lars Alexandersson, full-body Tekken 8 render" width="800" height="941" loading="lazy" decoding="async">
+        </div>
+        <div class="stage-body">
+          <p class="eyebrow stage-eyebrow">Secondary</p>
+          <h2 id="lars-name" class="stage-name">Lars<br>Alexandersson</h2>
+          <dl class="spec-sheet">
+            <div><dt>Status</dt><dd>Secondary</dd></div>
+            <div><dt>Playstyle</dt><dd>Aggressive</dd></div>
+            <div><dt>Difficulty</dt><dd>Medium</dd></div>
+            <div><dt>Execution</dt><dd>Medium</dd></div>
+            <div><dt>Signature</dt><dd>Mix-up &amp; wall carry</dd></div>
+          </dl>
+          <nav class="stage-nav" aria-label="Character stages">
+            <a rel="prev" href="#victor">&larr; Victor</a>
+            <span class="stage-index" aria-hidden="true">05 / 05</span>
+            <a rel="next" href="#jin">Jin &rarr;</a>
+          </nav>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ABOUT ============ -->
+    <section id="about" class="section about" aria-labelledby="about-title">
+      <p class="eyebrow">About</p>
+      <h2 id="about-title" class="section-title">SLEDGE</h2>
+      <p class="about-lead">A Tekken 8 devotee whose five-character roster spans the whole game — the disciplined all-rounder (Jin), the radiant aggressor (Claudio), the relentless commando (Dragunov), the cerebral tactician (Victor), and the electrifying rebel (Lars).</p>
+      <p class="about-body"><strong>Sledge mains Jin Kazama</strong> — aggressive and defensive in equal measure. <strong>Claudio Serafino</strong> backs him up as the straightforward aggressor. <strong>Sergei Dragunov</strong> and <strong>Victor Chevalier</strong> are the pairing that lives in the lab — hard to command, heavier to wield. <strong>Lars Alexandersson</strong> closes the set with speed and wall carry. No rank claims, no tier lists — this site is the roster, not a résumé.</p>
+    </section>
+
   </main>
 
-  <script type="module" src="js/app.js"></script>
+  <footer class="footer">
+    <div class="footer-inner">
+      <a class="wordmark" href="#top">SLEDGE</a>
+      <p class="footer-tag">Tekken 8 · Personal Roster</p>
+      <p class="footer-legal">© 2026 Sledge. Tekken 8 and all character names, images and related material are the property of Bandai Namco Entertainment. Unofficial fan site — not affiliated with or endorsed by Bandai Namco.</p>
+    </div>
+  </footer>
+
+  <script type="module" src="js/hero.js"></script>
 </body>
 
 </html>

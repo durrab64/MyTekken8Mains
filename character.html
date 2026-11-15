@@ -1,27 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Explore my Tekken 8 main characters - detailed character information, playstyles, and difficulty ratings.">
-    <meta name="keywords" content="Tekken 8, fighting games, character roster, Jin Kazama, Claudio, Dragunov, Victor, Lars">
-    <title>Character Details - My Tekken 8 Mains</title>
-    <link rel="stylesheet" href="css/style.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>Moved — SLEDGE · My Tekken 8 Mains</title>
+  <script>
+    /* Legacy route: character.html?id=jin  →  index.html#jin (spec Rev 3 §4, §8.4) */
+    (function () {
+      var id = new URLSearchParams(window.location.search).get('id');
+      var known = ['jin', 'claudio', 'dragunov', 'victor', 'lars'];
+      var target = known.indexOf(id) !== -1 ? 'index.html#' + id : 'index.html#roster';
+      window.location.replace(target);
+    })();
+  </script>
+  <noscript>
+    <meta http-equiv="refresh" content="0; url=index.html#roster">
+  </noscript>
+  <style>
+    body { background: #0B0B0C; color: #EDE6DA; font-family: system-ui, sans-serif;
+           display: grid; place-items: center; min-height: 100vh; margin: 0; }
+    a { color: #FF5A4E; }
+  </style>
 </head>
-
 <body>
-    <header class="header">
-        <h1 id="char-name">Loading...</h1>
-    </header>
-
-    <main class="container char-container">
-        <section id="char-details">
-            <p>Loading character data...</p>
-        </section>
-    </main>
-
-    <script type="module" src="js/char.js"></script>
+  <p>The character pages have moved. <a href="index.html#roster">Open the roster</a>.</p>
 </body>
-
 </html>
