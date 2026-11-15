@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description"
+    content="My Tekken 8 main characters showcase - filter and sort by playstyle and difficulty. Featuring Jin Kazama, Claudio, Dragunov, Victor, and Lars.">
+  <meta name="keywords"
+    content="Tekken 8, fighting games, character roster, Jin Kazama, Claudio Serafino, Sergei Dragunov, Victor Chevalier, Lars Alexandersson">
+  <meta name="author" content="Tekken 8 Player">
+  <title>My Tekken 8 Mains - Character Roster</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body>
+  <header class="header">
+    <h1> My Tekken 8 Mains </h1>
+    <p>Characters I play and how I play them</p>
+  </header>
+
+  <main class="container">
+    <section class="controls">
+      <select id="filter-playstyle">
+        <option value="all">All Playstyles</option>
+        <option value="aggressive">Aggressive</option>
+        <option value="balanced">Balanced</option>
+        <option value="defensive">Defensive</option>
+      </select>
+
+      <select id="filter-difficulty">
+        <option value="all">All Difficulties</option>
+        <option value="easy">Easy</option>
+        <option value="medium">Medium</option>
+        <option value="hard">Hard</option>
+      </select>
+
+      <select id="sort-characters">
+        <option value="default">Default</option>
+        <option value="name-asc">Name ↑</option>
+        <option value="name-desc">Name ↓</option>
+        <option value="difficulty-asc">Difficulty ↑</option>
+        <option value="difficulty-desc">Difficulty ↓</option>
+      </select>
+    </section>
+
+
+    <section id="character-list" class="grid">
+    </section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+
+</html>

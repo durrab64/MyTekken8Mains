@@ -1,0 +1,27 @@
+[
+  {
+    "id": "jin",
+    "image": "assets/images/jin.png",
+    "lore": "Jin Kazama is the heir of the Mishima Zaibatsu and the Kazama family. He fights to control the Devil Gene within him."
+  },
+  {
+    "id": "claudio",
+    "image": "assets/images/claudio.png",
+    "lore": "Claudio Serafino is a secret society exorcist who fights using solar magic and elegant martial arts."
+  },
+  {
+    "id": "dragunov",
+    "image": "assets/images/dragunov.png",
+    "lore": "Sergei Dragunov is a stoic soldier of Spetsnaz, hunting targets with precision and relentless force."
+  },
+  {
+    "id": "victor",
+    "image": "assets/images/victor.png",
+    "lore": "Victor Chevalier is a cunning fighter with a dark past, excelling in heavy damage and strategy."
+  },
+  {
+    "id": "lars",
+    "image": "assets/images/lars.png",
+    "lore": "Lars Alexandersson is a rogue rebel leader, agile and unpredictable, fighting for freedom."
+  }
+]
