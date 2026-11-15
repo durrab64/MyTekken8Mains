@@ -1,23 +1,9 @@
 /**
- * SLEDGE — visual engine (Phase 5.1)
- * =================================
- * ISOLATION CONTRACT (spec Rev 3 §8.2)
- * The renderer owns: the #fx canvas, its GL resources and uniforms.
- * The renderer NEVER owns: page content, navigation, focus order,
- * history, or accessibility semantics. Content lives in index.html;
- * navigation lives in js/stage.js; the roster lives in js/roster.js.
- *
- * P5.1 STATUS: WebGL2 is deliberately NOT implemented. The backend is
- * a no-op that engages the CSS fallback (Tier 0). This file defines the
- * final interface now so P5.2 (atmosphere), P5.3 (particles) and P5.4
- * (composition + wipe) slot in without touching call sites.
- *
- * Tier nomenclature (spec Rev 3 §8.3, final):
- *   Tier 0 — CSS-only fallback (no WebGL). Also the success state here.
- *   Tier 1 — low WebGL (~450 particles, quarter-resolution).
- *   Tier 2 — medium WebGL (~1,100 particles).
- *   Tier 3 — high WebGL (~2,200 particles).
- * WebGL init failure or context loss ⇒ Tier 0. Never Tier 1.
+ * SLEDGE — visual engine (Phase 5.2)
+ * Isolation contract (spec §8.2): the renderer owns ONLY #fx, GL resources
+ * and uniforms — never content, navigation, focus or history.
+ * P5.2: WebGL2 atmosphere pass only (Jin). No particles/refraction/wipe
+ * (P5.3/P5.4). P5.1's Tier 0 CSS fallback is the outcome of any failure.
  */
 
 import {
@@ -25,14 +11,33 @@ import {
   isReducedMotion,
   normalizeEnvironment,
 } from './fallback.js';
+import { atmosphereFragmentSource, atmosphereVertexSource } from './shaders.js';
 
+const TIER_CAPS = {
+  tier1: { resScale: 0.25, dprCap: 1.25, octaves: 3, particles: 450 },
+  tier2: { resScale: 0.5, dprCap: 1.25, octaves: 4, particles: 1100 },
+  tier3: { resScale: 0.5, dprCap: 1.5, octaves: 5, particles: 2200 },
+};
+const TIER_ORDER = ['tier1', 'tier2', 'tier3'];
 const QUALITY_VALUES = ['auto', 'tier0', 'tier1', 'tier2', 'tier3'];
+
+/* Jin environment — approved palette (spec Rev 3 §3.5). */
+const ENV_JIN = {
+  uDeep: [0.078, 0.043, 0.043],
+  uFog: [0.24, 0.088, 0.074],
+  uGlow: [0.863, 0.149, 0.149],
+  uVein: [1.0, 0.6, 0.42],
+};
 
 const state = {
   initialized: false,
   environment: normalizeEnvironment(document.body?.dataset.env),
   quality: 'auto',
+  entryTier: 'tier2',
   pointer: { x: 0.5, y: 0.5 },
+  heroVisible: false,
+  disposed: true,
+  debug: false,
 };
 
 const listeners = {
@@ -45,77 +50,458 @@ function emit(type, payload) {
     try {
       cb(payload);
     } catch (error) {
-      // Listeners must never break the renderer.
       console.error('fx listener error', error);
     }
   }
 }
 
-/**
- * Deterministic environment switch. In P5.2+ this crossfades shader
- * uniforms; in P5.1 it only reroutes the CSS atmosphere.
- * @param {string} id jin | claudio | dragunov | victor | lars
- */
+/* WebGL2 backend (Tier ≥ 1) */
+
+let gl = null;
+let program = null;
+let vao = null;
+let uniforms = null;
+let canvasEl = null;
+
+let rafId = 0;
+let running = false;
+let startSeconds = 0;
+let frameCount = 0;
+let resizeTimer = 0;
+let lastTierStepCheck = 0;
+
+/* Governor (light): CPU-interval sampling, labelled as such. */
+const frameDeltas = [];
+let gpuTimerExt = null;
+let gpuQuery = null;
+let gpuMsSmoothed = null;
+
+let heroObserver = null;
+let dprMedia = null;
+const detach = [];
+
+function tierForQuery() {
+  try {
+    const fx = new URLSearchParams(window.location.search).get('fx');
+    if (fx === 'off') return 'tier0';
+    if (fx === 'low') return 'tier1';
+    if (fx === 'high') return 'tier3';
+  } catch { /* no query — auto */ }
+  return 'auto';
+}
+
+function detectEntryTier() {
+  try {
+    if (window.matchMedia('(pointer: coarse)').matches) return 'tier1';
+    const cores = navigator.hardwareConcurrency ?? 4;
+    if (cores >= 8) return 'tier3';
+    if (cores >= 4) return 'tier2';
+    return 'tier1';
+  } catch {
+    return 'tier2';
+  }
+}
+
+function chooseTier() {
+  const forced = tierForQuery();
+  if (forced !== 'auto') return forced;
+  return detectEntryTier();
+}
+
+/* Shader compile / link with explicit failure */
+function compileShader(type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(shader) || 'unknown compile error';
+    gl.deleteShader(shader);
+    throw new Error(`shader compile failed: ${log}`);
+  }
+  return shader;
+}
+
+function buildProgram() {
+  const vert = compileShader(gl.VERTEX_SHADER, atmosphereVertexSource);
+  const frag = compileShader(gl.FRAGMENT_SHADER, atmosphereFragmentSource);
+  const linked = gl.createProgram();
+  gl.attachShader(linked, vert);
+  gl.attachShader(linked, frag);
+  gl.linkProgram(linked);
+  gl.deleteShader(vert);
+  gl.deleteShader(frag);
+  if (!gl.getProgramParameter(linked, gl.LINK_STATUS)) {
+    const log = gl.getProgramInfoLog(linked) || 'unknown link error';
+    gl.deleteProgram(linked);
+    throw new Error(`program link failed: ${log}`);
+  }
+  return linked;
+}
+
+function locateUniforms() {
+  const names = ['uTime', 'uResolution', 'uPointer', 'uWipe', 'uDeep', 'uFog', 'uGlow', 'uVein', 'uOctaves'];
+  const map = {};
+  for (const name of names) map[name] = gl.getUniformLocation(program, name);
+  return map;
+}
+
+function applyEnvironmentUniforms(env = ENV_JIN) {
+  gl.uniform3fv(uniforms.uDeep, env.uDeep);
+  gl.uniform3fv(uniforms.uFog, env.uFog);
+  gl.uniform3fv(uniforms.uGlow, env.uGlow);
+  gl.uniform3fv(uniforms.uVein, env.uVein);
+}
+
+function applyTierCaps(tier) {
+  const caps = TIER_CAPS[tier];
+  state.entryTier = tier;
+  gl.uniform1i(uniforms.uOctaves, caps.octaves);
+  resizeBackingStore(caps);
+}
+
+function resizeBackingStore(caps = TIER_CAPS[state.entryTier]) {
+  if (!gl || !canvasEl) return;
+  const cssW = Math.max(1, canvasEl.clientWidth || window.innerWidth);
+  const cssH = Math.max(1, canvasEl.clientHeight || window.innerHeight);
+  const dpr = Math.min(window.devicePixelRatio || 1, caps.dprCap);
+  const w = Math.max(1, Math.floor(cssW * dpr * caps.resScale));
+  const h = Math.max(1, Math.floor(cssH * dpr * caps.resScale));
+  if (canvasEl.width !== w || canvasEl.height !== h) {
+    canvasEl.width = w;
+    canvasEl.height = h;
+    gl.viewport(0, 0, w, h);
+  } else {
+    gl.viewport(0, 0, w, h);
+  }
+  gl.uniform2f(uniforms.uResolution, w, h);
+}
+
+function teardownGl() {
+  cancelAnimationFrame(rafId);
+  rafId = 0;
+  running = false;
+  frameCount = 0;
+  frameDeltas.length = 0;
+  gpuQuery = null;
+  gpuMsSmoothed = null;
+  if (gl) {
+    if (program) gl.deleteProgram(program);
+    if (vao) gl.deleteVertexArray(vao);
+  }
+  program = null;
+  vao = null;
+  uniforms = null;
+  gl = null;
+}
+
+function detachAll() {
+  heroObserver?.disconnect();
+  heroObserver = null;
+  dprMedia?.removeEventListener?.('change', onDprChange);
+  dprMedia = null;
+  while (detach.length) {
+    const off = detach.pop();
+    try { off(); } catch { /* noop */ }
+  }
+  window.clearTimeout(resizeTimer);
+}
+
+function onDprChange() {
+  resizeBackingStore();
+}
+
+function onWindowResize() {
+  window.clearTimeout(resizeTimer);
+  resizeTimer = window.setTimeout(() => resizeBackingStore(), 150);
+}
+
+function onVisibilityChange() {
+  if (document.hidden) {
+    cancelAnimationFrame(rafId);
+    rafId = 0;
+    running = false;
+  } else {
+    startLoop();
+  }
+}
+
+function onPageHide() {
+  dispose();
+}
+
+function onContextLost(event) {
+  event.preventDefault();
+  teardownGl();
+  // Keep the context lost/restored listeners (removing them would make
+  // recovery impossible) and the page-lifecycle listeners — they all
+  // no-op while `gl` is null, and re-registration by the identical
+  // function reference is a no-op when the backend boots again.
+  state.initialized = false;
+  canvasEl?.classList.remove('fx-canvas--live');
+  activateCssFallback('context-lost');
+  emit('tierchange', { tier: 'tier0', reason: 'context-lost' });
+}
+
+function onContextRestored() {
+  if (state.disposed) return;
+  void bootBackend('restored');
+}
+
+/* frame loop */
+function startLoop() {
+  if (running || document.hidden || !gl) return;
+  running = true;
+  let last = performance.now();
+
+  const frame = (now) => {
+    if (!running || document.hidden) return;
+    rafId = requestAnimationFrame(frame);
+
+    const delta = now - last;
+    last = now;
+    frameDeltas.push(delta);
+    if (frameDeltas.length > 90) frameDeltas.shift();
+    if (state.debug && frameCount > 0 && frameCount % 240 === 0) {
+      const avg = frameDeltas.reduce((a, b) => a + b, 0) / frameDeltas.length;
+      console.debug(`[fx] tier=${state.entryTier} cpu-interval-avg=${avg.toFixed(2)}ms (not GPU time) gpu-ms=${gpuMsSmoothed?.toFixed(3) ?? 'unsupported'}`);
+    }
+    governTier(now);
+
+    if (!state.heroVisible) return; // idle cost ≈ 0 — hero not on screen
+
+    /* GPU timer (where the extension exists) — never confused with rAF deltas. */
+    if (gpuTimerExt && frameCount % 60 === 30) {
+      gpuQuery = gl.createQuery();
+      gl.beginQuery(gpuTimerExt.TIME_ELAPSED_EXT, gpuQuery);
+    }
+    if (gpuTimerExt && gpuQuery && frameCount % 60 === 31) {
+      gl.endQuery(gpuTimerExt.TIME_ELAPSED_EXT);
+    }
+    if (gpuTimerExt && gpuQuery && frameCount % 60 === 33 && gl.getQueryParameter(gpuQuery, gl.QUERY_RESULT_AVAILABLE)) {
+      const ns = gl.getQueryParameter(gpuQuery, gl.QUERY_RESULT);
+      const ms = ns / 1e6;
+      gpuMsSmoothed = gpuMsSmoothed == null ? ms : gpuMsSmoothed * 0.75 + ms * 0.25;
+      gl.deleteQuery(gpuQuery);
+      gpuQuery = null;
+    }
+
+    gl.uniform1f(uniforms.uTime, ((now - startSeconds) / 1000) % 3600);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    frameCount += 1;
+  };
+
+  rafId = requestAnimationFrame(frame);
+}
+
+function governTier(now) {
+  if (frameDeltas.length < 90) return;
+  if (now - lastTierStepCheck < 900) return;
+  const avg = frameDeltas.reduce((a, b) => a + b, 0) / frameDeltas.length;
+  const idx = TIER_ORDER.indexOf(state.entryTier);
+  if (avg > 24 && idx > 0) {
+    lastTierStepCheck = now;
+    applyTierCaps(TIER_ORDER[idx - 1]);
+    frameDeltas.length = 0;
+    emit('tierchange', { tier: state.entryTier, reason: 'governor-step-down' });
+  } else if (avg < 12 && idx < TIER_ORDER.length - 1) {
+    lastTierStepCheck = now;
+    applyTierCaps(TIER_ORDER[idx + 1]);
+    frameDeltas.length = 0;
+    emit('tierchange', { tier: state.entryTier, reason: 'governor-step-up' });
+  } else {
+    lastTierStepCheck = now;
+  }
+}
+
+/* boot / teardown */
+function ensureHeroObserver() {
+  heroObserver?.disconnect();
+  const hero = document.querySelector('.hero');
+  if (!hero || typeof IntersectionObserver === 'undefined') {
+    state.heroVisible = true; // no observer support — render anyway
+    return;
+  }
+  heroObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        state.heroVisible = entry.isIntersecting && entry.intersectionRatio > 0.08;
+        if (canvasEl) canvasEl.style.opacity = state.heroVisible ? '1' : '0';
+      }
+    },
+    { threshold: [0, 0.08, 0.5] },
+  );
+  heroObserver.observe(hero);
+}
+
+async function bootBackend(reason = 'init') {
+  const tier = chooseTier();
+  if (tier === 'tier0') {
+    activateCssFallback('fx-off');
+    emit('tierchange', { tier: 'tier0', reason: 'fx-off' });
+    return { ok: true, tier: 'tier0', reason: 'fx-off' };
+  }
+
+  const canvas = canvasEl;
+  if (!canvas) {
+    activateCssFallback('no-canvas');
+    emit('tierchange', { tier: 'tier0', reason: 'no-canvas' });
+    return { ok: true, tier: 'tier0', reason: 'no-canvas' };
+  }
+
+  let context = null;
+  try {
+    context = canvas.getContext('webgl2', {
+      antialias: false,
+      depth: false,
+      stencil: false,
+      alpha: false,
+      powerPreference: 'high-performance',
+      failIfMajorPerformanceCaveat: false,
+    });
+  } catch (error) {
+    context = null;
+    console.warn('webgl2 context creation threw', error);
+  }
+  if (!context) {
+    activateCssFallback('webgl2-unavailable');
+    emit('tierchange', { tier: 'tier0', reason: 'webgl2-unavailable' });
+    return { ok: true, tier: 'tier0', reason: 'webgl2-unavailable' };
+  }
+
+  gl = context;
+  try {
+    program = buildProgram();
+    gl.useProgram(program);
+    vao = gl.createVertexArray();
+    gl.bindVertexArray(vao);
+    uniforms = locateUniforms();
+    gl.uniform2f(uniforms.uResolution, 1, 1);
+    gl.uniform1f(uniforms.uTime, 0);
+    gl.uniform2f(uniforms.uPointer, 0.5, 0.5);
+    gl.uniform1f(uniforms.uWipe, 1.0);
+    applyEnvironmentUniforms(ENV_JIN);
+    applyTierCaps(TIER_ORDER.includes(tier) ? tier : 'tier2');
+    gpuTimerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+  } catch (error) {
+    console.error('fx backend init failed; Tier 0 engaged', error);
+    teardownGl();
+    detachAll();
+    state.initialized = false;
+    activateCssFallback('shader-error');
+    emit('error', { reason: 'shader-error', message: String(error?.message || error) });
+    emit('tierchange', { tier: 'tier0', reason: 'shader-error' });
+    return { ok: true, tier: 'tier0', reason: 'shader-error' };
+  }
+
+  /* listeners — all removable, all idempotent */
+  const onLost = (e) => onContextLost(e);
+  const onRestored = () => onContextRestored();
+  canvas.addEventListener('webglcontextlost', onLost);
+  canvas.addEventListener('webglcontextrestored', onRestored);
+  detach.push(() => canvas.removeEventListener('webglcontextlost', onLost));
+  detach.push(() => canvas.removeEventListener('webglcontextrestored', onRestored));
+
+  window.addEventListener('resize', onWindowResize);
+  detach.push(() => window.removeEventListener('resize', onWindowResize));
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  detach.push(() => document.removeEventListener('visibilitychange', onVisibilityChange));
+  window.addEventListener('pagehide', onPageHide);
+  detach.push(() => window.removeEventListener('pagehide', onPageHide));
+
+  try {
+    dprMedia = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    dprMedia.addEventListener?.('change', onDprChange);
+  } catch {
+    dprMedia = null;
+  }
+
+  ensureHeroObserver();
+
+  startSeconds = performance.now();
+  canvasEl.classList.add('fx-canvas--live');
+  document.body.dataset.fx = 'webgl';
+  document.body.dataset.fxReason = state.entryTier;
+  startLoop();
+
+  emit('tierchange', { tier: state.entryTier, reason });
+  return { ok: true, tier: state.entryTier, reason };
+}
+
+/* Public API (contract unchanged from P5.1) */
+
+async function initialize(canvas) {
+  if (state.initialized) return { ok: true, tier: state.entryTier, reason: 'already-initialized' };
+  state.disposed = false;
+  canvasEl = canvas ?? document.getElementById('fx');
+  state.debug = false;
+  try {
+    state.debug = new URLSearchParams(window.location.search).get('debug') === '1';
+  } catch {
+    state.debug = false;
+  }
+
+  const reduced = isReducedMotion();
+  if (reduced) {
+    state.initialized = true;
+    activateCssFallback('reduced-motion');
+    emit('tierchange', { tier: 'tier0', reason: 'reduced-motion' });
+    return { ok: true, tier: 'tier0', reason: 'reduced-motion' };
+  }
+
+  state.initialized = true;
+  const result = await bootBackend('init');
+  return result;
+}
+
 function setEnvironment(id) {
   const env = normalizeEnvironment(id);
   state.environment = env;
   document.body.dataset.env = env;
+  // P5.2: Jin-only shader. When P5.3 lands, this crossfades uniforms —
+  // the call signature is already stable for it.
   return env;
 }
 
-/** Pointer in normalized [0..1] coordinates. Engine lerps internally (P5.4). */
 function setPointer(xNorm, yNorm) {
   state.pointer.x = clamp01(xNorm);
   state.pointer.y = clamp01(yNorm);
+  if (gl && uniforms) {
+    gl.uniform2f(uniforms.uPointer, state.pointer.x, state.pointer.y);
+  }
 }
 
 function setQuality(tier) {
-  state.quality = QUALITY_VALUES.includes(tier) ? tier : 'auto';
+  if (!QUALITY_VALUES.includes(tier)) tier = 'auto';
+  state.quality = tier;
+  if (tier === 'tier0') {
+    teardownGl();
+    detachAll();
+    document.body.dataset.fx = 'css';
+    document.body.dataset.fxReason = 'fx-off';
+    canvasEl?.classList.remove('fx-canvas--live');
+    emit('tierchange', { tier: 'tier0', reason: 'fx-off' });
+    return;
+  }
+  if (tier !== 'auto' && gl) {
+    applyTierCaps(tier);
+    frameDeltas.length = 0;
+  }
 }
 
 function resize() {
-  // No-op in Tier 0. P5.2: DPR-capped re-buffer.
-}
-
-/**
- * One-time initialization. Safe to call more than once.
- * In P5.1, always resolves to Tier 0. P5.2 attempts WebGL2 first and
- * falls back to Tier 0 on any failure.
- * @param {HTMLCanvasElement | null} canvas
- * @returns {Promise<{ ok: boolean, tier: 'tier0', reason: string }>}
- */
-async function initialize(canvas) {
-  if (state.initialized) {
-    return { ok: true, tier: 'tier0', reason: 'already-initialized' };
-  }
-
-  const reduced = isReducedMotion();
-  // P5.1: the shader backend does not exist yet — WebGL availability
-  // changes nothing visible, so we don't probe for it (saves a context).
-  // P5.2 attempts WebGL2 first and falls back on any failure.
-  const reason = reduced ? 'reduced-motion' : 'p5.1-scaffold';
-  const result = activateCssFallback(reason);
-
-  state.initialized = true;
-  setEnvironment(state.environment); // route CSS atmosphere from markup default
-  emit('tierchange', { tier: 'tier0', reason });
-
-  void canvas; // canvas reserved for the P5.2 backend
-  return result;
+  resizeBackingStore();
 }
 
 function dispose() {
+  state.disposed = true;
+  teardownGl();
+  detachAll();
   state.initialized = false;
-  listeners.tierchange.clear();
-  listeners.error.clear();
+  document.body.dataset.fx = 'css';
+  document.body.dataset.fxReason = 'disposed';
+  canvasEl?.classList.remove('fx-canvas--live');
 }
 
-/**
- * Subscribe to engine events.
- * @param {'tierchange' | 'error'} event
- * @param {(payload: any) => void} callback
- * @returns {() => void} unsubscribe
- */
 function on(event, callback) {
   const bucket = listeners[event];
   if (!bucket) return () => {};
@@ -123,9 +509,20 @@ function on(event, callback) {
   return () => bucket.delete(callback);
 }
 
-/** @returns snapshot for diagnostics — never consumption-critical. */
 function inspect() {
-  return { ...state, pointer: { ...state.pointer } };
+  return {
+    initialized: state.initialized,
+    environment: state.environment,
+    quality: state.quality,
+    entryTier: state.entryTier,
+    heroVisible: state.heroVisible,
+    pointer: { ...state.pointer },
+    gpuTimer: gpuTimerExt ? 'available' : 'unsupported',
+    gpuMsSmoothed: gpuMsSmoothed == null ? null : Number(gpuMsSmoothed.toFixed(3)),
+    cpuIntervalNote: 'CPU interval is not GPU time; gpuMsSmoothed when supported',
+    fallbackActive: document.body?.dataset.fx === 'css',
+    fallbackReason: document.body?.dataset.fxReason ?? null,
+  };
 }
 
 function clamp01(value) {
@@ -151,20 +548,24 @@ function createRenderer() {
 }
 
 /* ----------------------------------------------------------------
- * P5.1 boot: engage Tier 0 on module evaluation. `<canvas id="fx">`
- * is present but inert until the WebGL backend lands in P5.2.
+ * Boot: engage after load so WebGL never gates first paint.
  * ---------------------------------------------------------------- */
 const boot = () => {
   const canvas = document.getElementById('fx');
-  initialize(canvas).catch((error) => {
-    // Even a broken engine must never block the page.
-    console.error('fx initialize failed; engaging Tier 0', error);
-    activateCssFallback('initialize-error');
-  });
+  const kickoff = () => initialize(canvas);
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(kickoff, { timeout: 1500 });
+  } else {
+    window.setTimeout(kickoff, 250);
+  }
 };
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot, { once: true });
+  document.addEventListener('DOMContentLoaded', () => {
+    window.addEventListener('load', boot, { once: true });
+  }, { once: true });
+} else if (document.readyState === 'interactive') {
+  window.addEventListener('load', boot, { once: true });
 } else {
   boot();
 }

@@ -170,7 +170,12 @@ if (section) {
 
   /* ---------- URL sync (shareable filters) ---------- */
   function syncUrl() {
-    const params = new URLSearchParams();
+    /* Preserve params this site does not own (e.g. ?fx=…, ?debug=1) —
+       spec Rev 3 documents ?fx= as the manual quality override. */
+    const params = new URLSearchParams(window.location.search);
+    for (const facet of filterFacets) params.delete(facet.param);
+    params.delete('q');
+    params.delete('sort');
     if (state.q.trim()) params.set('q', state.q.trim());
     for (const facet of filterFacets) {
       const value = state.values[facet.id];

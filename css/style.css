@@ -1003,7 +1003,10 @@ body::before {
   height: 100%;
   z-index: 0;                    /* below content, above nothing else */
   pointer-events: none;
+  opacity: 0;                    /* fade in only when the engine goes live */
+  transition: opacity 0.45s ease;
 }
+body[data-fx='css'] .fx-canvas { display: none; }  /* Tier 0: fully hidden */
 
 /* Audited stacking rule (Phase 5 spec, decision 3): content above canvas.
    Nav (50), skip link (100), grain/vignette (69/70) unchanged. */
