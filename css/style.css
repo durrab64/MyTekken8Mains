@@ -974,3 +974,17 @@ body::before {
   .facets { gap: 0.65rem 1rem; }
   .chip { min-height: 36px; }
 }
+
+/* ============================================================
+   PHASE 4 — owner-approved first-person statement per stage
+   ============================================================ */
+.stage-why {
+  margin-top: 1.35rem;
+  max-width: 38ch;
+  padding-left: 1rem;
+  border-left: 2px solid var(--stage-accent);
+  font-size: 1.08rem;
+  line-height: 1.62;
+  color: var(--text);
+  opacity: 0.96;
+}
