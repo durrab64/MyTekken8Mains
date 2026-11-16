@@ -11,7 +11,9 @@ import {
   isReducedMotion,
   normalizeEnvironment,
 } from './fallback.js';
+import { environments } from '../config.js';
 import { atmosphereFragmentSource, atmosphereVertexSource } from './shaders.js';
+import { createParticles, applyParticleEnv, drawParticles, destroyParticles } from './particles.js';
 
 const TIER_CAPS = {
   tier1: { resScale: 0.25, dprCap: 1.25, octaves: 3, particles: 450 },
@@ -20,14 +22,6 @@ const TIER_CAPS = {
 };
 const TIER_ORDER = ['tier1', 'tier2', 'tier3'];
 const QUALITY_VALUES = ['auto', 'tier0', 'tier1', 'tier2', 'tier3'];
-
-/* Jin environment — approved palette (spec Rev 3 §3.5). */
-const ENV_JIN = {
-  uDeep: [0.078, 0.043, 0.043],
-  uFog: [0.24, 0.088, 0.074],
-  uGlow: [0.863, 0.149, 0.149],
-  uVein: [1.0, 0.6, 0.42],
-};
 
 const state = {
   initialized: false,
@@ -55,12 +49,12 @@ function emit(type, payload) {
   }
 }
 
-/* WebGL2 backend (Tier ≥ 1) */
-
 let gl = null;
 let program = null;
 let vao = null;
 let uniforms = null;
+let particles = null;
+let particleCount = 0;
 let canvasEl = null;
 
 let rafId = 0;
@@ -70,8 +64,8 @@ let frameCount = 0;
 let resizeTimer = 0;
 let lastTierStepCheck = 0;
 
-/* Governor (light): CPU-interval sampling, labelled as such. */
 const frameDeltas = [];
+const avgDelta = () => frameDeltas.reduce((a, b) => a + b, 0) / (frameDeltas.length || 1);
 let gpuTimerExt = null;
 let gpuQuery = null;
 let gpuMsSmoothed = null;
@@ -108,7 +102,6 @@ function chooseTier() {
   return detectEntryTier();
 }
 
-/* Shader compile / link with explicit failure */
 function compileShader(type, source) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source);
@@ -139,28 +132,35 @@ function buildProgram() {
 }
 
 function locateUniforms() {
-  const names = ['uTime', 'uResolution', 'uPointer', 'uWipe', 'uDeep', 'uFog', 'uGlow', 'uVein', 'uOctaves'];
+  const names = ['uTime', 'uResolution', 'uPointer', 'uWipe', 'uDeep', 'uFog', 'uGlow', 'uVein', 'uOctaves', 'uMode'];
   const map = {};
   for (const name of names) map[name] = gl.getUniformLocation(program, name);
   return map;
 }
 
-function applyEnvironmentUniforms(env = ENV_JIN) {
-  gl.uniform3fv(uniforms.uDeep, env.uDeep);
-  gl.uniform3fv(uniforms.uFog, env.uFog);
-  gl.uniform3fv(uniforms.uGlow, env.uGlow);
-  gl.uniform3fv(uniforms.uVein, env.uVein);
+// apply env: atmosphere + mode + particles (write-once/switch)
+function applyEnvironment(env) {
+  gl.useProgram(program);
+  gl.uniform3fv(uniforms.uDeep, env.deep);
+  gl.uniform3fv(uniforms.uFog, env.fog);
+  gl.uniform3fv(uniforms.uGlow, env.glow);
+  gl.uniform3fv(uniforms.uVein, env.vein);
+  gl.uniform1i(uniforms.uMode, env.mode);
+  if (particles) applyParticleEnv(gl, particles, env);
 }
 
 function applyTierCaps(tier) {
   const caps = TIER_CAPS[tier];
   state.entryTier = tier;
+  particleCount = caps.particles;
+  if (program) gl.useProgram(program);
   gl.uniform1i(uniforms.uOctaves, caps.octaves);
   resizeBackingStore(caps);
 }
 
 function resizeBackingStore(caps = TIER_CAPS[state.entryTier]) {
   if (!gl || !canvasEl) return;
+  if (program) gl.useProgram(program);
   const cssW = Math.max(1, canvasEl.clientWidth || window.innerWidth);
   const cssH = Math.max(1, canvasEl.clientHeight || window.innerHeight);
   const dpr = Math.min(window.devicePixelRatio || 1, caps.dprCap);
@@ -185,9 +185,12 @@ function teardownGl() {
   gpuQuery = null;
   gpuMsSmoothed = null;
   if (gl) {
+    if (particles) destroyParticles(gl, particles);
     if (program) gl.deleteProgram(program);
     if (vao) gl.deleteVertexArray(vao);
   }
+  particles = null;
+  particleCount = 0;
   program = null;
   vao = null;
   uniforms = null;
@@ -232,10 +235,7 @@ function onPageHide() {
 function onContextLost(event) {
   event.preventDefault();
   teardownGl();
-  // Keep the context lost/restored listeners (removing them would make
-  // recovery impossible) and the page-lifecycle listeners — they all
-  // no-op while `gl` is null, and re-registration by the identical
-  // function reference is a no-op when the backend boots again.
+  // keep lost/restored + lifecycle listeners: they no-op while gl is null, re-add is a no-op
   state.initialized = false;
   canvasEl?.classList.remove('fx-canvas--live');
   activateCssFallback('context-lost');
@@ -247,7 +247,6 @@ function onContextRestored() {
   void bootBackend('restored');
 }
 
-/* frame loop */
 function startLoop() {
   if (running || document.hidden || !gl) return;
   running = true;
@@ -262,14 +261,13 @@ function startLoop() {
     frameDeltas.push(delta);
     if (frameDeltas.length > 90) frameDeltas.shift();
     if (state.debug && frameCount > 0 && frameCount % 240 === 0) {
-      const avg = frameDeltas.reduce((a, b) => a + b, 0) / frameDeltas.length;
+      const avg = avgDelta();
       console.debug(`[fx] tier=${state.entryTier} cpu-interval-avg=${avg.toFixed(2)}ms (not GPU time) gpu-ms=${gpuMsSmoothed?.toFixed(3) ?? 'unsupported'}`);
     }
     governTier(now);
 
-    if (!state.heroVisible) return; // idle cost ≈ 0 — hero not on screen
+    if (!state.heroVisible) return;
 
-    /* GPU timer (where the extension exists) — never confused with rAF deltas. */
     if (gpuTimerExt && frameCount % 60 === 30) {
       gpuQuery = gl.createQuery();
       gl.beginQuery(gpuTimerExt.TIME_ELAPSED_EXT, gpuQuery);
@@ -285,8 +283,11 @@ function startLoop() {
       gpuQuery = null;
     }
 
-    gl.uniform1f(uniforms.uTime, ((now - startSeconds) / 1000) % 3600);
+    const tSec = ((now - startSeconds) / 1000) % 3600;
+    gl.useProgram(program);
+    gl.uniform1f(uniforms.uTime, tSec);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (particles && particleCount > 0) drawParticles(gl, particles, tSec, particleCount);
     frameCount += 1;
   };
 
@@ -296,7 +297,7 @@ function startLoop() {
 function governTier(now) {
   if (frameDeltas.length < 90) return;
   if (now - lastTierStepCheck < 900) return;
-  const avg = frameDeltas.reduce((a, b) => a + b, 0) / frameDeltas.length;
+  const avg = avgDelta();
   const idx = TIER_ORDER.indexOf(state.entryTier);
   if (avg > 24 && idx > 0) {
     lastTierStepCheck = now;
@@ -313,14 +314,13 @@ function governTier(now) {
   }
 }
 
-/* boot / teardown */
 function ensureHeroObserver() {
   heroObserver?.disconnect();
+  // assume hero visible (IO can starve in throttled tabs); observer refines
+  state.heroVisible = true;
+  if (canvasEl) canvasEl.style.opacity = '1';
   const hero = document.querySelector('.hero');
-  if (!hero || typeof IntersectionObserver === 'undefined') {
-    state.heroVisible = true; // no observer support — render anyway
-    return;
-  }
+  if (!hero || typeof IntersectionObserver === 'undefined') return;
   heroObserver = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
@@ -379,7 +379,8 @@ async function bootBackend(reason = 'init') {
     gl.uniform1f(uniforms.uTime, 0);
     gl.uniform2f(uniforms.uPointer, 0.5, 0.5);
     gl.uniform1f(uniforms.uWipe, 1.0);
-    applyEnvironmentUniforms(ENV_JIN);
+    particles = createParticles(gl);
+    applyEnvironment(environments[normalizeEnvironment(state.environment)] ?? environments.jin);
     applyTierCaps(TIER_ORDER.includes(tier) ? tier : 'tier2');
     gpuTimerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2');
   } catch (error) {
@@ -393,8 +394,7 @@ async function bootBackend(reason = 'init') {
     return { ok: true, tier: 'tier0', reason: 'shader-error' };
   }
 
-  /* listeners — all removable, all idempotent */
-  const onLost = (e) => onContextLost(e);
+    const onLost = (e) => onContextLost(e);
   const onRestored = () => onContextRestored();
   canvas.addEventListener('webglcontextlost', onLost);
   canvas.addEventListener('webglcontextrestored', onRestored);
@@ -427,8 +427,6 @@ async function bootBackend(reason = 'init') {
   return { ok: true, tier: state.entryTier, reason };
 }
 
-/* Public API (contract unchanged from P5.1) */
-
 async function initialize(canvas) {
   if (state.initialized) return { ok: true, tier: state.entryTier, reason: 'already-initialized' };
   state.disposed = false;
@@ -457,8 +455,7 @@ function setEnvironment(id) {
   const env = normalizeEnvironment(id);
   state.environment = env;
   document.body.dataset.env = env;
-  // P5.2: Jin-only shader. When P5.3 lands, this crossfades uniforms —
-  // the call signature is already stable for it.
+  if (gl) applyEnvironment(environments[env] ?? environments.jin);
   return env;
 }
 
@@ -547,9 +544,7 @@ function createRenderer() {
   return renderer;
 }
 
-/* ----------------------------------------------------------------
- * Boot: engage after load so WebGL never gates first paint.
- * ---------------------------------------------------------------- */
+/* Boot after load — WebGL never gates first paint. */
 const boot = () => {
   const canvas = document.getElementById('fx');
   const kickoff = () => initialize(canvas);

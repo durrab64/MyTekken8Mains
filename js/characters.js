@@ -1,16 +1,4 @@
-/**
- * SLEDGE — roster data (factual metadata only, Rev 3 §2).
- * Single source of truth for identity-level facts. Narrative
- * content (why / identity / strengths / weaknesses / take) is
- * Phase 4 and lands only after owner approval.
- *
- * Facet values mirror the approved taxonomy (spec §5):
- * status: main | secondary | lab
- * playstyle: aggressive | balanced | defensive
- * difficulty: medium | hard
- * execution: low | medium | high
- * signature: all-rounder | easy-pressure | damage | mixup-wall
- */
+// SLEDGE — roster data (factual metadata; spec Rev 3 §2). Facet values mirror §5.
 
 export const characters = [
   {

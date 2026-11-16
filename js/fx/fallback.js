@@ -1,16 +1,5 @@
-/**
- * SLEDGE — CSS atmospheric fallback manager (Phase 5.1, Tier 0).
- *
- * Owns everything WebGL never touches:
- *  - detection of reduced motion / unavailable WebGL2
- *  - the five static per-environment CSS atmospheres (via body[data-env])
- *  - the debug marker body[data-fx="css"] (spec Rev 3 §8.5)
- *
- * The engine itself (js/fx/engine.js) never initializes WebGL in P5.1 —
- * this module is the shipping visual backend for that checkpoint.
- * In P5.2+ it remains the automatic fallback whenever WebGL fails,
- * is blocked, or the user prefers reduced motion.
- */
+/** SLEDGE — Tier 0 (CSS-only) fallback manager: reduced-motion/WebGL2
+    detection, CSS atmosphere routing via body[data-env], debug marker body[data-fx="css"]. */
 
 export const CSS_ENVIRONMENTS = ['jin', 'claudio', 'dragunov', 'victor', 'lars'];
 const FALLBACK_ENV = 'jin';

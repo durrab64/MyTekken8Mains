@@ -1,12 +1,5 @@
-/**
- * SLEDGE — character stage navigation (spec Rev 3 §3.4 / §4).
- * CSS-fade v1: hash routing + focus management with a ~350–400ms
- * fade/slide. The WebGL energy-wipe arrives in Phase 5 and will
- * reuse this DOM contract — stages remain plain sections.
- *
- * P5.1: environment routing flows through the (Tier 0) renderer —
- * js/fx/engine.js is the single owner of body[data-env].
- */
+/** SLEDGE — stage navigation: hash routing + focus management (spec §3.4).
+    Environment routing flows through js/fx/engine.js (single owner of body[data-env]). */
 
 import { renderer } from './fx/engine.js';
 

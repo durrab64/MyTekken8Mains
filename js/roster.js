@@ -1,8 +1,7 @@
 /**
- * SLEDGE — roster archive: search, combinable facets, sort,
- * clear-all, URL-synced state, arrow-key browsing, shuffle.
- * Progressive enhancement: without JS the roster is a static
- * (fully readable) list of hash links, exactly as authored.
+ * SLEDGE — roster archive: search / facets / sort / clear-all /
+ * URL-sync / arrow keys / shuffle. Progressive enhancement:
+ * without JS the roster is a static list of hash links.
  */
 
 import { characters, difficultyRank, defaultOrder } from './characters.js';
@@ -23,7 +22,6 @@ if (section) {
   const noResultsReset = document.getElementById('no-results-reset');
   const facetsHost = document.getElementById('facets');
 
-  /* ---------- state ---------- */
   const pristine = () => ({
     q: '',
     sort: 'default',
@@ -31,7 +29,6 @@ if (section) {
   });
   const state = pristine();
 
-  /* ---------- facet UI (rendered from config — one source) ---------- */
   if (facetsHost) {
     const fragment = document.createDocumentFragment();
     for (const facet of filterFacets) {
@@ -61,7 +58,6 @@ if (section) {
     facetsHost.appendChild(fragment);
   }
 
-  /* ---------- sort select (rendered from config) ---------- */
   if (sortSelect) {
     for (const option of sortOptions) {
       const el = document.createElement('option');
@@ -74,7 +70,6 @@ if (section) {
   const signatureLabel = (value) =>
     filterFacets.find((f) => f.id === 'signature')?.options.find((o) => o.value === value)?.label ?? value;
 
-  /* ---------- filtering / sorting core ---------- */
   function visibleCharacters() {
     const q = state.q.trim().toLowerCase();
     return characters.filter((c) => {
@@ -113,7 +108,7 @@ if (section) {
   function reorderDom(orderedIds) {
     const current = [...grid.querySelectorAll('.roster-entry')].map((el) => el.getAttribute('href').slice(1));
     if (current.length === orderedIds.length && current.every((id, i) => id === orderedIds[i])) {
-      return; // no DOM churn when order is already correct
+      return; // no churn if already correct
     }
     const fragment = document.createDocumentFragment();
     for (const id of orderedIds) {
@@ -168,10 +163,8 @@ if (section) {
     apply();
   }
 
-  /* ---------- URL sync (shareable filters) ---------- */
   function syncUrl() {
-    /* Preserve params this site does not own (e.g. ?fx=…, ?debug=1) —
-       spec Rev 3 documents ?fx= as the manual quality override. */
+    // keep foreign params (?fx=, ?debug=1) — spec documents ?fx= as manual override
     const params = new URLSearchParams(window.location.search);
     for (const facet of filterFacets) params.delete(facet.param);
     params.delete('q');
@@ -198,7 +191,6 @@ if (section) {
     }
   }
 
-  /* ---------- events ---------- */
   if (searchInput) {
     searchInput.addEventListener('input', () => {
       state.q = searchInput.value;
@@ -223,7 +215,6 @@ if (section) {
     });
   }
 
-  /* Arrow-key browsing — Left/Right and Up/Down cycle visible entries. */
   section.addEventListener('keydown', (event) => {
     const tag = event.target?.tagName;
     if (tag !== 'A' && tag !== 'BUTTON') return;
@@ -259,7 +250,6 @@ if (section) {
     visible[nextIndex].focus();
   });
 
-  /* If a filtered-out element held focus, move focus somewhere sensible. */
   function rescueFocusIfHidden() {
     const active = document.activeElement;
     if (active?.classList?.contains('roster-entry') && active.classList.contains('entry-hidden')) {
