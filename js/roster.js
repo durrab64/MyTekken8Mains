@@ -3,12 +3,9 @@
  * URL-sync / arrow keys / shuffle. Progressive enhancement:
  * without JS the roster is a static list of hash links.
  */
-
 import { characters, difficultyRank, defaultOrder } from './characters.js';
 import { filterFacets, sortOptions } from './config.js';
-
 const section = document.getElementById('roster');
-
 if (section) {
   const entries = [...section.querySelectorAll('.roster-entry')];
   const entryById = new Map(entries.map((el) => [el.getAttribute('href').slice(1), el]));
@@ -21,24 +18,20 @@ if (section) {
   const noResults = document.getElementById('no-results');
   const noResultsReset = document.getElementById('no-results-reset');
   const facetsHost = document.getElementById('facets');
-
   const pristine = () => ({
     q: '',
     sort: 'default',
     values: Object.fromEntries(filterFacets.map((f) => [f.id, null])),
   });
   const state = pristine();
-
   if (facetsHost) {
     const fragment = document.createDocumentFragment();
     for (const facet of filterFacets) {
       const group = document.createElement('fieldset');
       group.className = 'facet-group';
-
       const legend = document.createElement('legend');
       legend.textContent = facet.label;
       group.appendChild(legend);
-
       const row = document.createElement('div');
       row.className = 'chip-row';
       for (const option of facet.options) {
@@ -57,7 +50,6 @@ if (section) {
     }
     facetsHost.appendChild(fragment);
   }
-
   if (sortSelect) {
     for (const option of sortOptions) {
       const el = document.createElement('option');
@@ -66,10 +58,8 @@ if (section) {
       sortSelect.appendChild(el);
     }
   }
-
-  const signatureLabel = (value) =>
-    filterFacets.find((f) => f.id === 'signature')?.options.find((o) => o.value === value)?.label ?? value;
-
+  const signatureLabel = (v) =>
+    filterFacets.find((f) => f.id === 'signature')?.options.find((o) => o.value === v)?.label ?? v;
   function visibleCharacters() {
     const q = state.q.trim().toLowerCase();
     return characters.filter((c) => {
@@ -82,7 +72,6 @@ if (section) {
       return q.split(/\s+/).every((token) => haystack.includes(token));
     });
   }
-
   function sortList(list) {
     const sorted = [...list];
     switch (state.sort) {
@@ -104,7 +93,6 @@ if (section) {
     }
     return sorted;
   }
-
   function reorderDom(orderedIds) {
     const current = [...grid.querySelectorAll('.roster-entry')].map((el) => el.getAttribute('href').slice(1));
     if (current.length === orderedIds.length && current.every((id, i) => id === orderedIds[i])) {
@@ -117,30 +105,24 @@ if (section) {
     }
     grid.appendChild(fragment);
   }
-
   const isPristine = () =>
     !state.q.trim() &&
     state.sort === 'default' &&
     filterFacets.every((f) => !state.values[f.id]);
-
   function apply() {
     const visible = sortList(visibleCharacters());
     const orderedIds = visible.map((c) => c.id);
     const visibleIds = new Set(orderedIds);
-
     for (const [id, el] of entryById) {
       el.classList.toggle('entry-hidden', !visibleIds.has(id));
     }
-
     reorderDom(orderedIds);
-
     if (results) {
       results.textContent = `Showing ${visible.length} of ${characters.length} characters`;
     }
     if (noResults) {
       noResults.hidden = visible.length !== 0;
     }
-
     for (const chip of section.querySelectorAll('.chip')) {
       const active = state.values[chip.dataset.facet] === chip.dataset.value;
       chip.setAttribute('aria-pressed', String(active));
@@ -148,21 +130,17 @@ if (section) {
     if (sortSelect && sortSelect.value !== state.sort) sortSelect.value = state.sort;
     if (searchInput && searchInput.value !== state.q) searchInput.value = state.q;
     if (clearBtn) clearBtn.disabled = isPristine();
-
     rescueFocusIfHidden();
     syncUrl();
   }
-
   function toggleFacet(facetId, value) {
     state.values[facetId] = state.values[facetId] === value ? null : value;
     apply();
   }
-
   function clearAll() {
     Object.assign(state, pristine());
     apply();
   }
-
   function syncUrl() {
     // keep foreign params (?fx=, ?debug=1) — spec documents ?fx= as manual override
     const params = new URLSearchParams(window.location.search);
@@ -179,7 +157,6 @@ if (section) {
     const next = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
     window.history.replaceState(null, '', next);
   }
-
   function readUrl() {
     const params = new URLSearchParams(window.location.search);
     state.q = (params.get('q') || '').slice(0, 80);
@@ -190,7 +167,6 @@ if (section) {
       state.values[facet.id] = facet.options.some((o) => o.value === raw) ? raw : null;
     }
   }
-
   if (searchInput) {
     searchInput.addEventListener('input', () => {
       state.q = searchInput.value;
@@ -205,7 +181,6 @@ if (section) {
   }
   if (clearBtn) clearBtn.addEventListener('click', clearAll);
   if (noResultsReset) noResultsReset.addEventListener('click', clearAll);
-
   if (shuffleBtn) {
     shuffleBtn.addEventListener('click', () => {
       const visible = visibleCharacters();
@@ -214,19 +189,15 @@ if (section) {
       window.location.hash = `#${pick.id}`;
     });
   }
-
   section.addEventListener('keydown', (event) => {
     const tag = event.target?.tagName;
     if (tag !== 'A' && tag !== 'BUTTON') return;
     const keys = ['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
     if (!keys.includes(event.key)) return;
-
     const visible = [...grid.querySelectorAll('.roster-entry:not(.entry-hidden)')];
     if (visible.length === 0) return;
-
     const currentIndex = visible.indexOf(document.activeElement);
     let nextIndex = null;
-
     switch (event.key) {
       case 'ArrowRight':
       case 'ArrowDown':
@@ -245,11 +216,9 @@ if (section) {
       default:
         return;
     }
-
     event.preventDefault();
     visible[nextIndex].focus();
   });
-
   function rescueFocusIfHidden() {
     const active = document.activeElement;
     if (active?.classList?.contains('roster-entry') && active.classList.contains('entry-hidden')) {
@@ -258,7 +227,6 @@ if (section) {
       else results?.focus();
     }
   }
-
   readUrl();
   apply();
 }

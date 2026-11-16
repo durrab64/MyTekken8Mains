@@ -1,20 +1,8 @@
-/**
- * SLEDGE — visual engine (Phase 5.2)
- * Isolation contract (spec §8.2): the renderer owns ONLY #fx, GL resources
- * and uniforms — never content, navigation, focus or history.
- * P5.2: WebGL2 atmosphere pass only (Jin). No particles/refraction/wipe
- * (P5.3/P5.4). P5.1's Tier 0 CSS fallback is the outcome of any failure.
- */
-
-import {
-  activateCssFallback,
-  isReducedMotion,
-  normalizeEnvironment,
-} from './fallback.js';
+/** SLEDGE engine. Renderer owns ONLY #fx + GL resources (spec §8.2) — never content, nav, focus or history. */
+import { activateCssFallback, isReducedMotion, normalizeEnvironment } from './fallback.js';
 import { environments } from '../config.js';
 import { atmosphereFragmentSource, atmosphereVertexSource } from './shaders.js';
 import { createParticles, applyParticleEnv, drawParticles, destroyParticles } from './particles.js';
-
 const TIER_CAPS = {
   tier1: { resScale: 0.25, dprCap: 1.25, octaves: 3, particles: 450 },
   tier2: { resScale: 0.5, dprCap: 1.25, octaves: 4, particles: 1100 },
@@ -22,7 +10,6 @@ const TIER_CAPS = {
 };
 const TIER_ORDER = ['tier1', 'tier2', 'tier3'];
 const QUALITY_VALUES = ['auto', 'tier0', 'tier1', 'tier2', 'tier3'];
-
 const state = {
   initialized: false,
   environment: normalizeEnvironment(document.body?.dataset.env),
@@ -33,12 +20,13 @@ const state = {
   disposed: true,
   debug: false,
 };
-
+const wipe = { from: null, to: null, start: 0, reseeded: true, active: false };
+const ptrW = { x: 0.5, y: 0.5 };
+const disp = { deep: [0,0,0], fog: [0,0,0], glow: [0,0,0], vein: [0,0,0], mode: 0 };
 const listeners = {
   tierchange: new Set(),
   error: new Set(),
 };
-
 function emit(type, payload) {
   for (const cb of listeners[type] ?? []) {
     try {
@@ -48,7 +36,6 @@ function emit(type, payload) {
     }
   }
 }
-
 let gl = null;
 let program = null;
 let vao = null;
@@ -56,24 +43,20 @@ let uniforms = null;
 let particles = null;
 let particleCount = 0;
 let canvasEl = null;
-
 let rafId = 0;
 let running = false;
 let startSeconds = 0;
 let frameCount = 0;
 let resizeTimer = 0;
 let lastTierStepCheck = 0;
-
 const frameDeltas = [];
 const avgDelta = () => frameDeltas.reduce((a, b) => a + b, 0) / (frameDeltas.length || 1);
 let gpuTimerExt = null;
 let gpuQuery = null;
 let gpuMsSmoothed = null;
-
 let heroObserver = null;
 let dprMedia = null;
 const detach = [];
-
 function tierForQuery() {
   try {
     const fx = new URLSearchParams(window.location.search).get('fx');
@@ -83,7 +66,6 @@ function tierForQuery() {
   } catch { /* no query — auto */ }
   return 'auto';
 }
-
 function detectEntryTier() {
   try {
     if (window.matchMedia('(pointer: coarse)').matches) return 'tier1';
@@ -95,13 +77,11 @@ function detectEntryTier() {
     return 'tier2';
   }
 }
-
 function chooseTier() {
   const forced = tierForQuery();
   if (forced !== 'auto') return forced;
   return detectEntryTier();
 }
-
 function compileShader(type, source) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source);
@@ -113,7 +93,6 @@ function compileShader(type, source) {
   }
   return shader;
 }
-
 function buildProgram() {
   const vert = compileShader(gl.VERTEX_SHADER, atmosphereVertexSource);
   const frag = compileShader(gl.FRAGMENT_SHADER, atmosphereFragmentSource);
@@ -130,25 +109,27 @@ function buildProgram() {
   }
   return linked;
 }
-
 function locateUniforms() {
   const names = ['uTime', 'uResolution', 'uPointer', 'uWipe', 'uDeep', 'uFog', 'uGlow', 'uVein', 'uOctaves', 'uMode'];
   const map = {};
   for (const name of names) map[name] = gl.getUniformLocation(program, name);
   return map;
 }
-
-// apply env: atmosphere + mode + particles (write-once/switch)
-function applyEnvironment(env) {
+const lerp3 = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
+const copy = (d, s) => { d.deep = [...s.deep]; d.fog = [...s.fog]; d.glow = [...s.glow]; d.vein = [...s.vein]; d.mode = s.mode; };
+function flushEnv() {
   gl.useProgram(program);
-  gl.uniform3fv(uniforms.uDeep, env.deep);
-  gl.uniform3fv(uniforms.uFog, env.fog);
-  gl.uniform3fv(uniforms.uGlow, env.glow);
-  gl.uniform3fv(uniforms.uVein, env.vein);
-  gl.uniform1i(uniforms.uMode, env.mode);
+  gl.uniform3fv(uniforms.uDeep, disp.deep);
+  gl.uniform3fv(uniforms.uFog, disp.fog);
+  gl.uniform3fv(uniforms.uGlow, disp.glow);
+  gl.uniform3fv(uniforms.uVein, disp.vein);
+  gl.uniform1i(uniforms.uMode, disp.mode);
+}
+function applyEnvironment(env) {
+  copy(disp, env);
+  flushEnv();
   if (particles) applyParticleEnv(gl, particles, env);
 }
-
 function applyTierCaps(tier) {
   const caps = TIER_CAPS[tier];
   state.entryTier = tier;
@@ -157,7 +138,6 @@ function applyTierCaps(tier) {
   gl.uniform1i(uniforms.uOctaves, caps.octaves);
   resizeBackingStore(caps);
 }
-
 function resizeBackingStore(caps = TIER_CAPS[state.entryTier]) {
   if (!gl || !canvasEl) return;
   if (program) gl.useProgram(program);
@@ -175,13 +155,13 @@ function resizeBackingStore(caps = TIER_CAPS[state.entryTier]) {
   }
   gl.uniform2f(uniforms.uResolution, w, h);
 }
-
 function teardownGl() {
   cancelAnimationFrame(rafId);
   rafId = 0;
   running = false;
   frameCount = 0;
   frameDeltas.length = 0;
+  wipe.active = false;
   gpuQuery = null;
   gpuMsSmoothed = null;
   if (gl) {
@@ -196,7 +176,6 @@ function teardownGl() {
   uniforms = null;
   gl = null;
 }
-
 function detachAll() {
   heroObserver?.disconnect();
   heroObserver = null;
@@ -208,16 +187,13 @@ function detachAll() {
   }
   window.clearTimeout(resizeTimer);
 }
-
 function onDprChange() {
   resizeBackingStore();
 }
-
 function onWindowResize() {
   window.clearTimeout(resizeTimer);
   resizeTimer = window.setTimeout(() => resizeBackingStore(), 150);
 }
-
 function onVisibilityChange() {
   if (document.hidden) {
     cancelAnimationFrame(rafId);
@@ -227,35 +203,28 @@ function onVisibilityChange() {
     startLoop();
   }
 }
-
 function onPageHide() {
   dispose();
 }
-
 function onContextLost(event) {
   event.preventDefault();
   teardownGl();
-  // keep lost/restored + lifecycle listeners: they no-op while gl is null, re-add is a no-op
   state.initialized = false;
   canvasEl?.classList.remove('fx-canvas--live');
   activateCssFallback('context-lost');
   emit('tierchange', { tier: 'tier0', reason: 'context-lost' });
 }
-
 function onContextRestored() {
   if (state.disposed) return;
   void bootBackend('restored');
 }
-
 function startLoop() {
   if (running || document.hidden || !gl) return;
   running = true;
   let last = performance.now();
-
   const frame = (now) => {
     if (!running || document.hidden) return;
     rafId = requestAnimationFrame(frame);
-
     const delta = now - last;
     last = now;
     frameDeltas.push(delta);
@@ -265,9 +234,30 @@ function startLoop() {
       console.debug(`[fx] tier=${state.entryTier} cpu-interval-avg=${avg.toFixed(2)}ms (not GPU time) gpu-ms=${gpuMsSmoothed?.toFixed(3) ?? 'unsupported'}`);
     }
     governTier(now);
-
+    if (wipe.active) {
+      const k = Math.min(1, (now - wipe.start) / 380);
+      const ease = 1 - Math.pow(1 - k, 3);
+      disp.deep = lerp3(wipe.from.deep, wipe.to.deep, ease);
+      disp.fog = lerp3(wipe.from.fog, wipe.to.fog, ease);
+      disp.glow = lerp3(wipe.from.glow, wipe.to.glow, ease);
+      disp.vein = lerp3(wipe.from.vein, wipe.to.vein, ease);
+      disp.mode = k < 0.5 ? wipe.from.mode : wipe.to.mode;
+      flushEnv();
+      if (k >= 0.5 && !wipe.reseeded) { if (particles) applyParticleEnv(gl, particles, wipe.to); wipe.reseeded = true; }
+      gl.uniform1f(uniforms.uWipe, k);
+      if (k >= 1) wipe.active = false;
+    }
+    const px = state.pointer.x, py = state.pointer.y;
+    const dxp = px - ptrW.x, dyp = py - ptrW.y;
+    if (Math.abs(dxp) > 0.002 || Math.abs(dyp) > 0.002) {
+      ptrW.x += dxp * (1 - Math.exp(-((delta || 16) / 1000) * 6));
+      ptrW.y += dyp * (1 - Math.exp(-((delta || 16) / 1000) * 6));
+      if (gl && uniforms) gl.uniform2f(uniforms.uPointer, ptrW.x, ptrW.y);
+      document.documentElement.style.setProperty('--pdx', ((ptrW.x - 0.5) * 2).toFixed(3));
+      document.documentElement.style.setProperty('--pdy', ((ptrW.y - 0.5) * 2).toFixed(3));
+      document.documentElement.style.setProperty('--rim-g', Math.max(0, 1 - Math.hypot(ptrW.x - 0.5, ptrW.y - 0.55) / 0.8).toFixed(3));
+    }
     if (!state.heroVisible) return;
-
     if (gpuTimerExt && frameCount % 60 === 30) {
       gpuQuery = gl.createQuery();
       gl.beginQuery(gpuTimerExt.TIME_ELAPSED_EXT, gpuQuery);
@@ -282,7 +272,6 @@ function startLoop() {
       gl.deleteQuery(gpuQuery);
       gpuQuery = null;
     }
-
     const tSec = ((now - startSeconds) / 1000) % 3600;
     gl.useProgram(program);
     gl.uniform1f(uniforms.uTime, tSec);
@@ -290,10 +279,8 @@ function startLoop() {
     if (particles && particleCount > 0) drawParticles(gl, particles, tSec, particleCount);
     frameCount += 1;
   };
-
   rafId = requestAnimationFrame(frame);
 }
-
 function governTier(now) {
   if (frameDeltas.length < 90) return;
   if (now - lastTierStepCheck < 900) return;
@@ -313,10 +300,8 @@ function governTier(now) {
     lastTierStepCheck = now;
   }
 }
-
 function ensureHeroObserver() {
   heroObserver?.disconnect();
-  // assume hero visible (IO can starve in throttled tabs); observer refines
   state.heroVisible = true;
   if (canvasEl) canvasEl.style.opacity = '1';
   const hero = document.querySelector('.hero');
@@ -332,7 +317,6 @@ function ensureHeroObserver() {
   );
   heroObserver.observe(hero);
 }
-
 async function bootBackend(reason = 'init') {
   const tier = chooseTier();
   if (tier === 'tier0') {
@@ -340,14 +324,12 @@ async function bootBackend(reason = 'init') {
     emit('tierchange', { tier: 'tier0', reason: 'fx-off' });
     return { ok: true, tier: 'tier0', reason: 'fx-off' };
   }
-
   const canvas = canvasEl;
   if (!canvas) {
     activateCssFallback('no-canvas');
     emit('tierchange', { tier: 'tier0', reason: 'no-canvas' });
     return { ok: true, tier: 'tier0', reason: 'no-canvas' };
   }
-
   let context = null;
   try {
     context = canvas.getContext('webgl2', {
@@ -367,7 +349,6 @@ async function bootBackend(reason = 'init') {
     emit('tierchange', { tier: 'tier0', reason: 'webgl2-unavailable' });
     return { ok: true, tier: 'tier0', reason: 'webgl2-unavailable' };
   }
-
   gl = context;
   try {
     program = buildProgram();
@@ -393,40 +374,41 @@ async function bootBackend(reason = 'init') {
     emit('tierchange', { tier: 'tier0', reason: 'shader-error' });
     return { ok: true, tier: 'tier0', reason: 'shader-error' };
   }
-
     const onLost = (e) => onContextLost(e);
   const onRestored = () => onContextRestored();
   canvas.addEventListener('webglcontextlost', onLost);
   canvas.addEventListener('webglcontextrestored', onRestored);
   detach.push(() => canvas.removeEventListener('webglcontextlost', onLost));
   detach.push(() => canvas.removeEventListener('webglcontextrestored', onRestored));
-
   window.addEventListener('resize', onWindowResize);
   detach.push(() => window.removeEventListener('resize', onWindowResize));
   document.addEventListener('visibilitychange', onVisibilityChange);
   detach.push(() => document.removeEventListener('visibilitychange', onVisibilityChange));
   window.addEventListener('pagehide', onPageHide);
   detach.push(() => window.removeEventListener('pagehide', onPageHide));
-
+  if (!window.matchMedia?.('(pointer: coarse)').matches) {
+    const onPointerMove = (e) => {
+      state.pointer.x = e.clientX / window.innerWidth;
+      state.pointer.y = 1 - e.clientY / window.innerHeight;
+    };
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    detach.push(() => window.removeEventListener('pointermove', onPointerMove));
+  }
   try {
     dprMedia = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
     dprMedia.addEventListener?.('change', onDprChange);
   } catch {
     dprMedia = null;
   }
-
   ensureHeroObserver();
-
   startSeconds = performance.now();
   canvasEl.classList.add('fx-canvas--live');
   document.body.dataset.fx = 'webgl';
   document.body.dataset.fxReason = state.entryTier;
   startLoop();
-
   emit('tierchange', { tier: state.entryTier, reason });
   return { ok: true, tier: state.entryTier, reason };
 }
-
 async function initialize(canvas) {
   if (state.initialized) return { ok: true, tier: state.entryTier, reason: 'already-initialized' };
   state.disposed = false;
@@ -437,7 +419,6 @@ async function initialize(canvas) {
   } catch {
     state.debug = false;
   }
-
   const reduced = isReducedMotion();
   if (reduced) {
     state.initialized = true;
@@ -445,20 +426,25 @@ async function initialize(canvas) {
     emit('tierchange', { tier: 'tier0', reason: 'reduced-motion' });
     return { ok: true, tier: 'tier0', reason: 'reduced-motion' };
   }
-
   state.initialized = true;
   const result = await bootBackend('init');
   return result;
 }
-
 function setEnvironment(id) {
   const env = normalizeEnvironment(id);
+  const same = state.environment === env;
   state.environment = env;
   document.body.dataset.env = env;
-  if (gl) applyEnvironment(environments[env] ?? environments.jin);
+  if (gl && !same) {
+    wipe.from = { deep: [...disp.deep], fog: [...disp.fog], glow: [...disp.glow], vein: [...disp.vein], mode: disp.mode };
+    wipe.to = environments[env] ?? environments.jin;
+    wipe.start = performance.now();
+    wipe.reseeded = false;
+    wipe.active = true;
+    if (uniforms) gl.uniform1f(uniforms.uWipe, 0);
+  }
   return env;
 }
-
 function setPointer(xNorm, yNorm) {
   state.pointer.x = clamp01(xNorm);
   state.pointer.y = clamp01(yNorm);
@@ -466,7 +452,6 @@ function setPointer(xNorm, yNorm) {
     gl.uniform2f(uniforms.uPointer, state.pointer.x, state.pointer.y);
   }
 }
-
 function setQuality(tier) {
   if (!QUALITY_VALUES.includes(tier)) tier = 'auto';
   state.quality = tier;
@@ -484,11 +469,9 @@ function setQuality(tier) {
     frameDeltas.length = 0;
   }
 }
-
 function resize() {
   resizeBackingStore();
 }
-
 function dispose() {
   state.disposed = true;
   teardownGl();
@@ -498,35 +481,12 @@ function dispose() {
   document.body.dataset.fxReason = 'disposed';
   canvasEl?.classList.remove('fx-canvas--live');
 }
-
 function on(event, callback) {
   const bucket = listeners[event];
   if (!bucket) return () => {};
   bucket.add(callback);
   return () => bucket.delete(callback);
 }
-
-function inspect() {
-  return {
-    initialized: state.initialized,
-    environment: state.environment,
-    quality: state.quality,
-    entryTier: state.entryTier,
-    heroVisible: state.heroVisible,
-    pointer: { ...state.pointer },
-    gpuTimer: gpuTimerExt ? 'available' : 'unsupported',
-    gpuMsSmoothed: gpuMsSmoothed == null ? null : Number(gpuMsSmoothed.toFixed(3)),
-    cpuIntervalNote: 'CPU interval is not GPU time; gpuMsSmoothed when supported',
-    fallbackActive: document.body?.dataset.fx === 'css',
-    fallbackReason: document.body?.dataset.fxReason ?? null,
-  };
-}
-
-function clamp01(value) {
-  if (Number.isNaN(Number(value))) return 0.5;
-  return Math.min(1, Math.max(0, Number(value)));
-}
-
 const renderer = Object.freeze({
   initialize,
   setEnvironment,
@@ -535,26 +495,16 @@ const renderer = Object.freeze({
   resize,
   dispose,
   on,
-  inspect,
 });
-
+const clamp01 = (value) => (Number.isNaN(Number(value)) ? 0.5 : Math.min(1, Math.max(0, Number(value))));
 export { renderer, createRenderer };
-
-function createRenderer() {
-  return renderer;
-}
-
-/* Boot after load — WebGL never gates first paint. */
+function createRenderer() { return renderer; }
 const boot = () => {
   const canvas = document.getElementById('fx');
   const kickoff = () => initialize(canvas);
-  if ('requestIdleCallback' in window) {
-    window.requestIdleCallback(kickoff, { timeout: 1500 });
-  } else {
-    window.setTimeout(kickoff, 250);
-  }
+  if ('requestIdleCallback' in window) window.requestIdleCallback(kickoff, { timeout: 1500 });
+  else window.setTimeout(kickoff, 250);
 };
-
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('load', boot, { once: true });

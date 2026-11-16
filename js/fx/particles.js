@@ -1,7 +1,6 @@
 /** SLEDGE — stateless GPU particles (Phase 5.3): one instanced draw call,
     zero CPU work, additive blending, no textures. */
 import { particleVertexSource, particleFragmentSource } from './shaders.js';
-
 function compile(gl, type, source) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source);
@@ -13,7 +12,6 @@ function compile(gl, type, source) {
   }
   return shader;
 }
-
 export function createParticles(gl) {
   const program = gl.createProgram();
   gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, particleVertexSource));
@@ -33,7 +31,6 @@ export function createParticles(gl) {
   gl.bindVertexArray(null);
   return { program, vao, u, count: 0 };
 }
-
 export function applyParticleEnv(gl, particles, env) {
   gl.useProgram(particles.program);
   gl.uniform2fv(particles.u.uOrigin, env.origin);
@@ -44,7 +41,6 @@ export function applyParticleEnv(gl, particles, env) {
   gl.uniform3fv(particles.u.uTintB, env.tintB);
   gl.uniform1f(particles.u.uSeed, Math.random() * 1000);
 }
-
 export function drawParticles(gl, particles, timeSeconds, count) {
   gl.useProgram(particles.program);
   gl.bindVertexArray(particles.vao);
@@ -55,7 +51,6 @@ export function drawParticles(gl, particles, timeSeconds, count) {
   gl.disable(gl.BLEND);
   gl.bindVertexArray(null);
 }
-
 export function destroyParticles(gl, particles) {
   if (!particles) return;
   gl.deleteProgram(particles.program);

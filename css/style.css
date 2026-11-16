@@ -960,10 +960,40 @@ body::before {
 }
 
 /* ============================================================
+   PHASE 5.4 — pointer depth, rim glow, wipe artwork flare
+   ============================================================ */
+
+.hero-inner {
+  transform: translate(calc(var(--pdx, 0) * -6px), calc(var(--pdy, 0) * -5px));
+  transition: transform 0.25s var(--ease);
+  will-change: transform;
+}
+
+.stage-art img {
+  transform: translate(calc(var(--pdx, 0) * 10px), calc(var(--pdy, 0) * 7px));
+  filter:
+    drop-shadow(0 40px 60px rgba(0, 0, 0, 0.65))
+    drop-shadow(0 0 calc(85px + var(--rim-g, 0) * 45px) var(--stage-glow));
+  transition: transform 0.25s var(--ease), filter 0.3s var(--ease);
+  will-change: transform, filter;
+}
+
+@keyframes stageArtFlare {
+  0%   { filter: drop-shadow(0 40px 60px rgba(0, 0, 0, 0.65)) drop-shadow(0 0 85px var(--stage-glow)) brightness(1); transform: translateY(0) scale(1); }
+  45%  { filter: drop-shadow(0 44px 66px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 130px var(--stage-glow)) brightness(1.18); transform: translateY(-6px) scale(1.025); }
+  100% { filter: drop-shadow(0 40px 60px rgba(0, 0, 0, 0.65)) drop-shadow(0 0 calc(85px + var(--rim-g, 0) * 45px) var(--stage-glow)) brightness(1); transform: translate(calc(var(--pdx, 0) * 10px), calc(var(--pdy, 0) * 7px)); }
+}
+.stage.is-entering .stage-art img { animation: stageArtFlare 0.38s var(--ease); }
+
+@media (pointer: coarse), (prefers-reduced-motion: reduce) {
+  .stage-art img, .hero-inner { transform: none !important; }
+  .stage-art img { filter: drop-shadow(0 40px 60px rgba(0, 0, 0, 0.65)) drop-shadow(0 0 85px var(--stage-glow)) !important; }
+}
+
+/* ============================================================
    PHASE 5.1 — Tier 0: static CSS atmospheres + engine canvas
-   CSS owns grain + vignette (body::after / body::before). The
-   shader never re-draws them. These backgrounds ARE the Tier 0
-   experience (no WebGL anywhere).
+   CSS owns grain + vignette (body::after / body::before).
+   These backgrounds ARE the Tier 0 experience (no WebGL anywhere).
    ============================================================ */
 
 .fx-canvas {
