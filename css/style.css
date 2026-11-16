@@ -997,6 +997,7 @@ body::before {
    ============================================================ */
 
 .fx-canvas {
+  display: block;
   position: fixed;
   inset: 0;
   width: 100%;

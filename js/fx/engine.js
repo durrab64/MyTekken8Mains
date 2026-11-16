@@ -304,12 +304,12 @@ function ensureHeroObserver() {
   heroObserver?.disconnect();
   state.heroVisible = true;
   if (canvasEl) canvasEl.style.opacity = '1';
-  const hero = document.querySelector('.hero');
+  const hero = document.querySelector('main');
   if (!hero || typeof IntersectionObserver === 'undefined') return;
   heroObserver = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
-        state.heroVisible = entry.isIntersecting && entry.intersectionRatio > 0.08;
+        state.heroVisible = entry.isIntersecting;
         if (canvasEl) canvasEl.style.opacity = state.heroVisible ? '1' : '0';
       }
     },
