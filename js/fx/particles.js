@@ -23,9 +23,11 @@ export function createParticles(gl) {
     throw new Error(`particle program link failed: ${log}`);
   }
   const u = {};
-  for (const n of ['uTime', 'uSwirl', 'uSize', 'uSeed', 'uOrigin', 'uDir', 'uTintA', 'uTintB']) {
+  for (const n of ['uTime', 'uSwirl', 'uSize', 'uSeed', 'uPointer', 'uAspect', 'uOrigin', 'uDir', 'uTintA', 'uTintB']) {
     u[n] = gl.getUniformLocation(program, n);
   }
+  gl.useProgram(program);
+  gl.uniform2f(u.uPointer, 2, 2);
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
   gl.bindVertexArray(null);

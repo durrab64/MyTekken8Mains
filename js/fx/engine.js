@@ -154,6 +154,10 @@ function resizeBackingStore(caps = TIER_CAPS[state.entryTier]) {
     gl.viewport(0, 0, w, h);
   }
   gl.uniform2f(uniforms.uResolution, w, h);
+  if (particles) {
+    gl.useProgram(particles.program);
+    gl.uniform1f(particles.u.uAspect, w / h);
+  }
 }
 function teardownGl() {
   cancelAnimationFrame(rafId);
@@ -252,7 +256,14 @@ function startLoop() {
     if (Math.abs(dxp) > 0.002 || Math.abs(dyp) > 0.002) {
       ptrW.x += dxp * (1 - Math.exp(-((delta || 16) / 1000) * 6));
       ptrW.y += dyp * (1 - Math.exp(-((delta || 16) / 1000) * 6));
-      if (gl && uniforms) gl.uniform2f(uniforms.uPointer, ptrW.x, ptrW.y);
+      if (gl && uniforms) {
+        if (particles) {
+          gl.useProgram(particles.program);
+          gl.uniform2f(particles.u.uPointer, ptrW.x, ptrW.y);
+        }
+        gl.useProgram(program);
+        gl.uniform2f(uniforms.uPointer, ptrW.x, ptrW.y);
+      }
       document.documentElement.style.setProperty('--pdx', ((ptrW.x - 0.5) * 2).toFixed(3));
       document.documentElement.style.setProperty('--pdy', ((ptrW.y - 0.5) * 2).toFixed(3));
       document.documentElement.style.setProperty('--rim-g', Math.max(0, 1 - Math.hypot(ptrW.x - 0.5, ptrW.y - 0.55) / 0.8).toFixed(3));
@@ -449,6 +460,11 @@ function setPointer(xNorm, yNorm) {
   state.pointer.x = clamp01(xNorm);
   state.pointer.y = clamp01(yNorm);
   if (gl && uniforms) {
+    if (particles) {
+      gl.useProgram(particles.program);
+      gl.uniform2f(particles.u.uPointer, state.pointer.x, state.pointer.y);
+    }
+    gl.useProgram(program);
     gl.uniform2f(uniforms.uPointer, state.pointer.x, state.pointer.y);
   }
 }
