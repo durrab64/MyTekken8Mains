@@ -1,5 +1,3 @@
-// SLEDGE — brand, filters & environment registry (spec Rev 3 §3.5, §5).
-// Five approved environments. Adding a character = one entry here + markup.
 export const filterFacets = [
 {
 id: 'status',
@@ -58,7 +56,6 @@ export const sortOptions = [
 { value: 'name-desc', label: 'Name Z–A' },
 { value: 'difficulty', label: 'Difficulty' },
 ];
-/** ENVIRONMENTS — approved identities (spec §3.5). mode: 0 jin pillar · 1 claudio rays · 2 dragunov low sun · 3 victor blade · 4 lars storm */
 export const environments = {
 jin: { deep:[.05,.024,.02], fog:[.13,.05,.038], glow:[.7,.11,.055], vein:[.95,.3,.12], mode:0, origin:[.62,-.82], dir:[0,1.05], swirl:.7, size:1.15, tintA:[.95,.34,.1], tintB:[1,.68,.3] },
 claudio: { deep:[.012,.035,.07], fog:[.05,.12,.21], glow:[.2,.52,.8], vein:[.75,.58,.24], mode:1, origin:[0,.1], dir:[.05,.28], swirl:.95, size:.8, tintA:[.22,.5,.9], tintB:[.82,.72,.45] },

@@ -1,4 +1,3 @@
-// SLEDGE — roster data (factual metadata; spec Rev 3 §2). Facet values mirror §5.
 export const characters = [
 {
 id: 'jin',

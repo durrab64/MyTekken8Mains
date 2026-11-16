@@ -1,5 +1,3 @@
-/** SLEDGE — stateless GPU particles (Phase 5.3): one instanced draw call,
-    zero CPU work, additive blending, no textures. */
 import { particleVertexSource, particleFragmentSource } from './shaders.js';
 function compile(gl, type, source) {
   const shader = gl.createShader(type);

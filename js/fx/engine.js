@@ -1,12 +1,11 @@
-/** SLEDGE engine. Renderer owns ONLY #fx + GL resources (spec §8.2) — never content, nav, focus or history. */
 import { activateCssFallback, isReducedMotion, normalizeEnvironment } from './fallback.js';
 import { environments } from '../config.js';
-import { atmosphereFragmentSource, atmosphereVertexSource } from './shaders.js';
+import { ART, atmosphereFragmentSource, atmosphereVertexSource } from './shaders.js';
 import { createParticles, applyParticleEnv, drawParticles, destroyParticles } from './particles.js';
 const TIER_CAPS = {
-  tier1: { resScale: 0.25, dprCap: 1.25, octaves: 3, particles: 450 },
-  tier2: { resScale: 0.5, dprCap: 1.25, octaves: 4, particles: 1100 },
-  tier3: { resScale: 0.5, dprCap: 1.5, octaves: 5, particles: 2200 },
+  tier1: { resScale: 0.25, dprCap: 1.25, octaves: 3, particles: 450, art: 0 },
+  tier2: { resScale: 0.5, dprCap: 1.25, octaves: 4, particles: 1100, art: 1 },
+  tier3: { resScale: 0.5, dprCap: 1.5, octaves: 5, particles: 2200, art: 1 },
 };
 const TIER_ORDER = ['tier1', 'tier2', 'tier3'];
 const QUALITY_VALUES = ['auto', 'tier0', 'tier1', 'tier2', 'tier3'];
@@ -42,6 +41,7 @@ let vao = null;
 let uniforms = null;
 let particles = null;
 let particleCount = 0;
+let artImg = null, artTex = null, artState = 0;
 let canvasEl = null;
 let rafId = 0;
 let running = false;
@@ -57,13 +57,14 @@ let gpuMsSmoothed = null;
 let heroObserver = null;
 let dprMedia = null;
 const detach = [];
+let contextOff = null;
 function tierForQuery() {
   try {
     const fx = new URLSearchParams(window.location.search).get('fx');
     if (fx === 'off') return 'tier0';
     if (fx === 'low') return 'tier1';
     if (fx === 'high') return 'tier3';
-  } catch { /* no query — auto */ }
+  } catch {  }
   return 'auto';
 }
 function detectEntryTier() {
@@ -78,6 +79,7 @@ function detectEntryTier() {
   }
 }
 function chooseTier() {
+  if (state.quality !== 'auto') return state.quality;
   const forced = tierForQuery();
   if (forced !== 'auto') return forced;
   return detectEntryTier();
@@ -110,10 +112,36 @@ function buildProgram() {
   return linked;
 }
 function locateUniforms() {
-  const names = ['uTime', 'uResolution', 'uPointer', 'uWipe', 'uDeep', 'uFog', 'uGlow', 'uVein', 'uOctaves', 'uMode'];
+  const names = ['uTime', 'uResolution', 'uPointer', 'uWipe', 'uDeep', 'uFog', 'uGlow', 'uVein', 'uOctaves', 'uMode', 'uArtRect'];
   const map = {};
   for (const name of names) map[name] = gl.getUniformLocation(program, name);
   return map;
+}
+function artInit() {
+  const T = gl.TEXTURE_2D;
+  artTex = gl.createTexture();
+  gl.bindTexture(T, artTex);
+  gl.texImage2D(T, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(T, k, v);
+  gl.generateMipmap(T);
+}
+function artLoad() {
+  if (artState) return;
+  const T = gl.TEXTURE_2D;
+  if (!artImg) artImg = document.querySelector('#jin img');
+  if (!artImg || !artImg.complete) return;
+  if (!artImg.naturalWidth) { artState = -1; return; }
+  gl.bindTexture(T, artTex);
+  gl.texImage2D(T, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, artImg);
+  gl.generateMipmap(T);
+  artState = 1;
+}
+function artFrame() {
+  const on = ART && state.environment === 'jin' && TIER_CAPS[state.entryTier]?.art === 1;
+  if (on && !artState) artLoad();
+  if (!on || artState !== 1) return gl.uniform4f(uniforms.uArtRect, 0, 0, 0, 0);
+  const r = artImg.getBoundingClientRect(), w = canvasEl.clientWidth, h = canvasEl.clientHeight;
+  gl.uniform4f(uniforms.uArtRect, r.left / w, 1 - (r.top + r.height) / h, r.width / w, r.height / h);
 }
 const lerp3 = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 const copy = (d, s) => { d.deep = [...s.deep]; d.fog = [...s.fog]; d.glow = [...s.glow]; d.vein = [...s.vein]; d.mode = s.mode; };
@@ -159,7 +187,7 @@ function resizeBackingStore(caps = TIER_CAPS[state.entryTier]) {
     gl.uniform1f(particles.u.uAspect, w / h);
   }
 }
-function teardownGl() {
+function teardownGl(lost) {
   cancelAnimationFrame(rafId);
   rafId = 0;
   running = false;
@@ -168,17 +196,26 @@ function teardownGl() {
   wipe.active = false;
   gpuQuery = null;
   gpuMsSmoothed = null;
-  if (gl) {
+  if (gl && !lost) {
     if (particles) destroyParticles(gl, particles);
     if (program) gl.deleteProgram(program);
     if (vao) gl.deleteVertexArray(vao);
+    if (artTex) gl.deleteTexture(artTex);
   }
   particles = null;
   particleCount = 0;
   program = null;
   vao = null;
   uniforms = null;
+  artTex = null;
+  artState = 0;
   gl = null;
+}
+function hookContext(c) {
+  if (contextOff) return;
+  const add = (n, f) => (c.addEventListener(n, f), () => c.removeEventListener(n, f));
+  const a = add('webglcontextlost', onContextLost), b = add('webglcontextrestored', onContextRestored);
+  contextOff = () => { a(); b(); };
 }
 function detachAll() {
   heroObserver?.disconnect();
@@ -187,7 +224,7 @@ function detachAll() {
   dprMedia = null;
   while (detach.length) {
     const off = detach.pop();
-    try { off(); } catch { /* noop */ }
+    try { off(); } catch {  }
   }
   window.clearTimeout(resizeTimer);
 }
@@ -212,14 +249,16 @@ function onPageHide() {
 }
 function onContextLost(event) {
   event.preventDefault();
-  teardownGl();
-  state.initialized = false;
+  teardownGl(1);
+  detachAll();
+  if (state.quality !== 'tier0') state.initialized = false;
   canvasEl?.classList.remove('fx-canvas--live');
   activateCssFallback('context-lost');
   emit('tierchange', { tier: 'tier0', reason: 'context-lost' });
 }
 function onContextRestored() {
-  if (state.disposed) return;
+  if (state.disposed || state.quality === 'tier0') return;
+  state.initialized = true;
   void bootBackend('restored');
 }
 function startLoop() {
@@ -247,8 +286,8 @@ function startLoop() {
       disp.vein = lerp3(wipe.from.vein, wipe.to.vein, ease);
       disp.mode = k < 0.5 ? wipe.from.mode : wipe.to.mode;
       flushEnv();
-      if (k >= 0.5 && !wipe.reseeded) { if (particles) applyParticleEnv(gl, particles, wipe.to); wipe.reseeded = true; }
       gl.uniform1f(uniforms.uWipe, k);
+      if (k >= 0.5 && !wipe.reseeded) { if (particles) applyParticleEnv(gl, particles, wipe.to); wipe.reseeded = true; }
       if (k >= 1) wipe.active = false;
     }
     const px = state.pointer.x, py = state.pointer.y;
@@ -286,6 +325,7 @@ function startLoop() {
     const tSec = ((now - startSeconds) / 1000) % 3600;
     gl.useProgram(program);
     gl.uniform1f(uniforms.uTime, tSec);
+    artFrame();
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     if (particles && particleCount > 0) drawParticles(gl, particles, tSec, particleCount);
     frameCount += 1;
@@ -329,6 +369,7 @@ function ensureHeroObserver() {
   heroObserver.observe(hero);
 }
 async function bootBackend(reason = 'init') {
+  detachAll();
   const tier = chooseTier();
   if (tier === 'tier0') {
     activateCssFallback('fx-off');
@@ -367,6 +408,7 @@ async function bootBackend(reason = 'init') {
     vao = gl.createVertexArray();
     gl.bindVertexArray(vao);
     uniforms = locateUniforms();
+    if (ART) artInit();
     gl.uniform2f(uniforms.uResolution, 1, 1);
     gl.uniform1f(uniforms.uTime, 0);
     gl.uniform2f(uniforms.uPointer, 0.5, 0.5);
@@ -385,12 +427,7 @@ async function bootBackend(reason = 'init') {
     emit('tierchange', { tier: 'tier0', reason: 'shader-error' });
     return { ok: true, tier: 'tier0', reason: 'shader-error' };
   }
-    const onLost = (e) => onContextLost(e);
-  const onRestored = () => onContextRestored();
-  canvas.addEventListener('webglcontextlost', onLost);
-  canvas.addEventListener('webglcontextrestored', onRestored);
-  detach.push(() => canvas.removeEventListener('webglcontextlost', onLost));
-  detach.push(() => canvas.removeEventListener('webglcontextrestored', onRestored));
+  hookContext(canvas);
   window.addEventListener('resize', onWindowResize);
   detach.push(() => window.removeEventListener('resize', onWindowResize));
   document.addEventListener('visibilitychange', onVisibilityChange);
@@ -452,7 +489,7 @@ function setEnvironment(id) {
     wipe.start = performance.now();
     wipe.reseeded = false;
     wipe.active = true;
-    if (uniforms) gl.uniform1f(uniforms.uWipe, 0);
+    if (uniforms) { gl.useProgram(program); gl.uniform1f(uniforms.uWipe, 0); }
   }
   return env;
 }
@@ -480,6 +517,10 @@ function setQuality(tier) {
     emit('tierchange', { tier: 'tier0', reason: 'fx-off' });
     return;
   }
+  if (tier !== 'auto' && !gl) {
+    if (!state.disposed && state.initialized) void bootBackend('quality');
+    return;
+  }
   if (tier !== 'auto' && gl) {
     applyTierCaps(tier);
     frameDeltas.length = 0;
@@ -492,6 +533,8 @@ function dispose() {
   state.disposed = true;
   teardownGl();
   detachAll();
+  contextOff?.();
+  contextOff = null;
   state.initialized = false;
   document.body.dataset.fx = 'css';
   document.body.dataset.fxReason = 'disposed';

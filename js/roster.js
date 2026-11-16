@@ -1,8 +1,3 @@
-/**
- * SLEDGE — roster archive: search / facets / sort / clear-all /
- * URL-sync / arrow keys / shuffle. Progressive enhancement:
- * without JS the roster is a static list of hash links.
- */
 import { characters, difficultyRank, defaultOrder } from './characters.js';
 import { filterFacets, sortOptions } from './config.js';
 const section = document.getElementById('roster');
@@ -96,7 +91,7 @@ if (section) {
   function reorderDom(orderedIds) {
     const current = [...grid.querySelectorAll('.roster-entry')].map((el) => el.getAttribute('href').slice(1));
     if (current.length === orderedIds.length && current.every((id, i) => id === orderedIds[i])) {
-      return; // no churn if already correct
+      return;
     }
     const fragment = document.createDocumentFragment();
     for (const id of orderedIds) {
@@ -142,7 +137,6 @@ if (section) {
     apply();
   }
   function syncUrl() {
-    // keep foreign params (?fx=, ?debug=1) — spec documents ?fx= as manual override
     const params = new URLSearchParams(window.location.search);
     for (const facet of filterFacets) params.delete(facet.param);
     params.delete('q');

@@ -137,6 +137,8 @@ Owner per-character review request — reply per character with **APPROVE** or r
 
 Shaders in ES-module template literals; ES2019+ output; static relative imports over HTTP/2; zero custom textures (procedural sprite) ⇒ no texture-compression pipeline needed. **Decision recorded: no bundler, no transpiler, no compiler.** If profiling ever justifies otherwise, raised as a spec amendment first.
 
+**P5.7 Jin artwork-mask exception:** The existing Jin character PNG may be uploaded at runtime as a non-displayed alpha mask, exclusively when the URL explicitly contains `?art=on`, the active character is Jin, and the active rendering tier is Tier2 or Tier3. This is a narrowly scoped exception to the zero-custom-textures restriction; it does not authorize a new texture asset or texture-compression pipeline. The existing WebGL2 context and fullscreen canvas must be reused. No additional canvas, WebGL context, shader program, render pass, draw call, or animation loop may be introduced. The mask must not be displayed as a replacement for the existing DOM artwork. No other character or visual effect may use this exception.
+
 ### 8.2 Isolated renderer interface (owner-mandated)
 
 The renderer (`js/fx/engine.js`) is an **isolated visual backend** with the following contract:
