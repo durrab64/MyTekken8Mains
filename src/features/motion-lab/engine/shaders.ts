@@ -50,15 +50,31 @@ float labFbmOctaves(vec2 p, int octaves) {
 `;
 
 /**
- * Requires uFormationRadius and uFilaments uniforms plus NOISE_GLSL.
+ * R2.5-0 formation interface. Only LAB_FORMATION_JIN is implemented. Other
+ * ids never reach this shader (the registry/UI/engine reject them first);
+ * the sentinel branch exists so an unsupported id parks particles at the
+ * clamp ceiling with zeroed alpha instead of fabricating geometry.
+ * Declares its own shared uniforms (uFormation, uFormationRadius,
+ * uFilaments) so every program that includes it links cleanly.
  */
-const JIN_GLSL = `
+/**
+ * R2.5-0 formation interface. Only LAB_FORMATION_JIN is implemented. Other
+ * ids never reach this shader (the registry/UI/engine reject them first);
+ * the sentinel branch exists so an unsupported id parks particles at the
+ * clamp ceiling with zeroed alpha instead of fabricating geometry.
+ */
+const LAB_FORMATION_GLSL = `
+const int LAB_FORMATION_JIN = 0;
+uniform int uFormation;
+uniform float uFormationRadius;
+uniform float uFilaments;
+
 /**
  * Arc-length compensation. Rows are uniform in this warped lambda so particle
  * spacing along the spiral stays close to even where the radius is widest.
  * Applied identically when seeding, so V.w already stores the warped value.
  */
-float jinLambda(float base) {
+float formationLambda(float base) {
   return base + 0.05 * sin(LAB_TAU * base);
 }
 
@@ -104,6 +120,23 @@ vec3 labJinHome(float lambda, float seed, float filament, float t) {
   float z = sin(angle) * radius * 0.58;
   return vec3(x, y, z);
 }
+
+/**
+ * Formation dispatcher. Unknown ids park particles at the clamp ceiling;
+ * sprites are alpha-discarded via formationVisibility(). Never fabricates
+ * geometry for an unimplemented formation.
+ */
+vec3 formationHome(float lambda, float seed, float filament, float t) {
+  if (uFormation != LAB_FORMATION_JIN) {
+    return vec3(0.0, 1.45, 0.0);
+  }
+  return labJinHome(lambda, seed, filament, t);
+}
+
+/** 0.0 when the active formation is unsupported; 1.0 for Jin. */
+float formationVisibility() {
+  return uFormation == LAB_FORMATION_JIN ? 1.0 : 0.0;
+}
 `;
 
 export const FULLSCREEN_VS = `#version 300 es
@@ -128,6 +161,12 @@ uniform float uAspect;
 uniform vec3 uDeep;
 uniform vec3 uFog;
 uniform vec3 uGlow;
+// R2.5-0 interface only. Jin mode (0) is the only implemented mode; modes
+// 1–4 are reserved and intentionally render the neutral backplate.
+uniform int uAtmosMode;
+uniform vec2 uAtmosAnchor;
+uniform float uAtmosBand;
+uniform float uAtmosPulse;
 
 out vec4 outColor;
 
@@ -137,18 +176,21 @@ void main() {
   vec2 p = (vUv - 0.5) * vec2(uAspect, 1.0);
 
   vec3 color = mix(uDeep * 0.36, uFog * 0.22, smoothstep(0.05, 0.95, vUv.y));
-  float column = exp(-pow(p.x / 0.32, 2.0));
-  float band = smoothstep(-1.05, -0.55, p.y) * (1.0 - smoothstep(0.45, 1.10, p.y));
-  color += uGlow * 0.16 * column * band;
+  if (uAtmosMode == 0) {
+    float column = exp(-pow(p.x / 0.32, 2.0));
+    float band = smoothstep(-1.05, -0.55, p.y) * (1.0 - smoothstep(0.45, 1.10, p.y));
+    color += uGlow * 0.16 * column * band;
 
-  float base = exp(-dot(p - vec2(0.0, -0.70), p - vec2(0.0, -0.70)) * 4.5);
-  color += uGlow * 0.13 * base;
+    float base = exp(-dot(p - vec2(0.0, -0.70), p - vec2(0.0, -0.70)) * 4.5);
+    color += uGlow * 0.13 * base;
 
-  float core = exp(-dot(p, p) * 2.4);
-  color += uGlow * 0.055 * core;
+    float core = exp(-dot(p, p) * 2.4);
+    color += uGlow * 0.055 * core;
 
-  float haze = labFbm2(vec2(p.x * 1.7, p.y * 1.1 - uTime * 0.035));
-  color += uGlow * 0.065 * haze * band * column;
+    float haze = labFbm2(vec2(p.x * 1.7, p.y * 1.1 - uTime * 0.035));
+    color += uGlow * 0.065 * haze * band * column;
+  }
+  // else: neutral backplate only. No reserved mode renders effects yet.
 
   float vignette = smoothstep(1.40, 0.35, length(p * vec2(0.75, 0.92)));
   color *= mix(0.62, 1.0, vignette);
@@ -181,13 +223,12 @@ uniform float uCurl;
 uniform int uOctaves;
 uniform float uAmplitude;
 uniform float uMaxSpeed;
-uniform float uFormationRadius;
-uniform float uFilaments;
+uniform float uCurlScale;
 
 layout(location = 0) out vec4 outVelocity;
 
 ${NOISE_GLSL}
-${JIN_GLSL}
+${LAB_FORMATION_GLSL}
 
 vec2 labCurl(vec2 p, float t, int octaves) {
   const float e = 0.055;
@@ -208,7 +249,7 @@ void main() {
   float lambda = V.w;
   int index = coord.x + coord.y * uSimSize;
   float filament = mod(float(index), uFilaments);
-  vec3 home = labJinHome(lambda, seed, filament, uTime);
+  vec3 home = formationHome(lambda, seed, filament, uTime);
 
   vec3 pos = P.xyz;
   vec3 vel = V.xyz;
@@ -222,7 +263,7 @@ void main() {
   vec2 pointerForce = (dir * uPointerStrength + tangent * uPointerSwirl) * fall;
   pointerForce += uPointerVelocity * fall * 0.45;
 
-  vec2 curl = labCurl(pos.xy * 0.62, uTime, uOctaves) * uCurl * 0.115;
+  vec2 curl = labCurl(pos.xy * 0.62, uTime, uOctaves) * uCurl * 0.115 * uCurlScale;
   vec2 wind = vec2(0.0, 0.03);
   vec3 springForce = (home - pos) * uSpring;
   vec3 force = springForce + vec3((pointerForce + curl + wind) * uAmplitude, 0.0);
@@ -313,6 +354,7 @@ out float vAlpha;
 out float vHard;
 
 ${NOISE_GLSL}
+${LAB_FORMATION_GLSL}
 
 void main() {
   int index = gl_InstanceID;
@@ -349,6 +391,7 @@ void main() {
          * (0.60 + 0.44 * depth)
          * (0.78 + 0.50 * spark);
   vHard = spark;
+  vAlpha *= formationVisibility();
 }
 `;
 
@@ -359,8 +402,6 @@ layout(location = 0) in vec2 aCorner;
 
 uniform int uCount;
 uniform float uTime;
-uniform float uFormationRadius;
-uniform float uFilaments;
 uniform vec2 uPointer;
 uniform float uPointerActive;
 uniform float uPointerRadius;
@@ -381,7 +422,7 @@ out float vAlpha;
 out float vHard;
 
 ${NOISE_GLSL}
-${JIN_GLSL}
+${LAB_FORMATION_GLSL}
 
 void main() {
   float fi = float(gl_InstanceID);
@@ -389,11 +430,11 @@ void main() {
   float rows = max(1.0, ceil(float(uCount) / uFilaments));
   float edge = mod(fi, uFilaments);
   float stagger = 0.5 * mod(edge, 2.0);
-  float lambda = jinLambda((floor(fi / uFilaments) + 0.5 + stagger) / rows);
+  float lambda = formationLambda((floor(fi / uFilaments) + 0.5 + stagger) / rows);
   float seed = labHash11(fi * 1.37 + 4.11);
 
-  vec3 home = labJinHome(lambda, seed, filament, uTime);
-  vec3 previous = labJinHome(lambda, seed, filament, uTime - 0.045);
+  vec3 home = formationHome(lambda, seed, filament, uTime);
+  vec3 previous = formationHome(lambda, seed, filament, uTime - 0.045);
   vec3 motion = (home - previous) / 0.045;
 
   vec2 delta = home.xy - uPointer;
@@ -429,7 +470,8 @@ void main() {
   vColor = color * (0.90 + 0.52 * depth);
   vAlpha = (0.22 + 0.32 * labHash11(seed * 11.0 + 2.0))
          * (0.60 + 0.44 * depth)
-         * (0.78 + 0.50 * spark);
+         * (0.78 + 0.50 * spark)
+         * formationVisibility();
   vHard = spark;
 }
 `;

@@ -1,3 +1,219 @@
+/**
+ * R2.5-0 formation data model for the isolated lab.
+ *
+ * Only `jin` is implemented and selectable. The remaining ids are reserved
+ * schema entries (`implemented: false`) so the registry, the type system and
+ * the selector can be built without fabricating their geometry. Every
+ * shader-side branch for a non-Jin id resolves to a disabled sentinel, never
+ * to invented geometry.
+ */
+export type FormationId = 'jin' | 'claudio' | 'dragunov' | 'victor' | 'lars';
+
+export interface FormationPalette {
+  deep: readonly [number, number, number];
+  fog: readonly [number, number, number];
+  glow: readonly [number, number, number];
+  vein: readonly [number, number, number];
+  tintA: readonly [number, number, number];
+  tintB: readonly [number, number, number];
+}
+
+export type FormationGlyph = 'streak' | 'chip' | 'diamond' | 'glint';
+
+export interface FormationAtmosphere {
+  /** 0 = Jin ember column (the only active mode); 1–4 reserved, not implemented. */
+  mode: number;
+  /** Key-light anchor in atmosphere p-space. Reserved; Jin mode ignores it. */
+  anchor: readonly [number, number];
+  /** Band width multiplier. Reserved; Jin mode ignores it. */
+  band: number;
+  /** Pulse period in seconds. 0 = no pulse (Jin). Harness/UI must not imply activity otherwise. */
+  pulsePeriod: number;
+}
+
+/**
+ * Data-driven formation definition. Intentionally small: geometry lives in
+ * GLSL, counts/tier config live in TIER_CONFIG, and interaction constants stay
+ * with the user-facing params. This object carries identity, palette, render
+ * glyph, atmosphere plumbing and safe defaults.
+ */
+export interface FormationDefinition {
+  id: FormationId;
+  character: string;
+  name: string;
+  title: string;
+  /** Only `true` entries may be selected or rendered. */
+  implemented: boolean;
+  glyph: FormationGlyph;
+  /** Formation envelope radius (stage units). */
+  radius: number;
+  /** Default spring constant for the formation (informational; panel params stay authoritative). */
+  spring: number;
+  /** Multiplier applied to the UI curl parameter. 1 = unchanged (Jin). */
+  curlScale: number;
+  /** Depth-layout descriptor for the future shared renderer. Informational in this stage. */
+  depth: 'helix' | 'rings' | 'sheets' | 'dial' | 'trunk';
+  atmosphere: FormationAtmosphere;
+  palette: FormationPalette;
+}
+
+export const FORMATIONS: Record<FormationId, FormationDefinition> = {
+  jin: {
+    id: 'jin',
+    character: 'Jin Kazama',
+    name: 'Ember Pillar',
+    title: 'The approved R2.4 reference formation',
+    implemented: true,
+    glyph: 'streak',
+    radius: 0.34,
+    spring: 2.6,
+    curlScale: 1,
+    depth: 'helix',
+    atmosphere: { mode: 0, anchor: [0, -0.7], band: 1, pulsePeriod: 0 },
+    palette: {
+      deep: [0.05, 0.024, 0.02],
+      fog: [0.13, 0.05, 0.038],
+      glow: [0.7, 0.11, 0.055],
+      vein: [0.95, 0.3, 0.12],
+      tintA: [0.95, 0.34, 0.1],
+      tintB: [1, 0.72, 0.3],
+    },
+  },
+  // Reserved — schema only. No geometry, shading or atmosphere is implemented.
+  claudio: {
+    id: 'claudio',
+    character: 'Claudio Serafino',
+    name: 'Radiant Orbit',
+    title: 'Planned formation — not implemented',
+    implemented: false,
+    glyph: 'glint',
+    radius: 0.63,
+    spring: 2.6,
+    curlScale: 1,
+    depth: 'rings',
+    atmosphere: { mode: 1, anchor: [0, 0], band: 1, pulsePeriod: 0 },
+    palette: {
+      deep: [0.014, 0.028, 0.055],
+      fog: [0.085, 0.12, 0.2],
+      glow: [0.5, 0.68, 0.88],
+      vein: [0.95, 0.83, 0.48],
+      tintA: [0.38, 0.62, 0.92],
+      tintB: [0.97, 0.9, 0.6],
+    },
+  },
+  dragunov: {
+    id: 'dragunov',
+    character: 'Sergei Dragunov',
+    name: 'Frost Curtain',
+    title: 'Planned formation — not implemented',
+    implemented: false,
+    glyph: 'chip',
+    radius: 1.25,
+    spring: 2.4,
+    curlScale: 1,
+    depth: 'sheets',
+    atmosphere: { mode: 2, anchor: [0, -0.7], band: 1, pulsePeriod: 0 },
+    palette: {
+      deep: [0.018, 0.026, 0.04],
+      fog: [0.065, 0.1, 0.15],
+      glow: [0.3, 0.42, 0.55],
+      vein: [0.75, 0.85, 0.94],
+      tintA: [0.34, 0.42, 0.54],
+      tintB: [0.78, 0.86, 0.94],
+    },
+  },
+  victor: {
+    id: 'victor',
+    character: 'Victor Chevalier',
+    name: 'Precision Dial',
+    title: 'Planned formation — not implemented',
+    implemented: false,
+    glyph: 'diamond',
+    radius: 0.5,
+    spring: 3.2,
+    curlScale: 0.4,
+    depth: 'dial',
+    atmosphere: { mode: 3, anchor: [-0.55, 0.6], band: 1, pulsePeriod: 0 },
+    palette: {
+      deep: [0.026, 0.016, 0.05],
+      fog: [0.085, 0.055, 0.15],
+      glow: [0.42, 0.22, 0.72],
+      vein: [0.18, 0.78, 0.85],
+      tintA: [0.48, 0.25, 0.82],
+      tintB: [0.16, 0.8, 0.86],
+    },
+  },
+  lars: {
+    id: 'lars',
+    character: 'Lars Alexandersson',
+    name: 'Bolt Filament',
+    title: 'Planned formation — not implemented',
+    implemented: false,
+    glyph: 'streak',
+    radius: 1.2,
+    spring: 3.0,
+    curlScale: 0.7,
+    depth: 'trunk',
+    atmosphere: { mode: 4, anchor: [0, 0], band: 1, pulsePeriod: 2.2 },
+    palette: {
+      deep: [0.006, 0.022, 0.055],
+      fog: [0.03, 0.09, 0.2],
+      glow: [0.18, 0.55, 0.95],
+      vein: [0.95, 0.8, 0.28],
+      tintA: [0.2, 0.62, 0.95],
+      tintB: [0.95, 0.78, 0.22],
+    },
+  },
+};
+
+/** Stable render order for the selector. */
+export const FORMATION_ORDER: readonly FormationId[] = [
+  'jin',
+  'claudio',
+  'dragunov',
+  'victor',
+  'lars',
+] as const;
+
+/** Shader-side formation ids. Only index 0 is implemented. */
+export const FORMATION_INDEX: Record<FormationId, number> = {
+  jin: 0,
+  claudio: 1,
+  dragunov: 2,
+  victor: 3,
+  lars: 4,
+} as const;
+
+export function isFormationImplemented(id: FormationId): boolean {
+  return FORMATIONS[id].implemented;
+}
+
+export interface ActiveFormation {
+  id: FormationId;
+  index: number;
+  character: string;
+  name: string;
+  title: string;
+}
+
+/** Registry lookup used by the engine. Throws on unknown id. */
+export function requireFormation(id: string): FormationDefinition {
+  const definition = (FORMATIONS as Record<string, FormationDefinition | undefined>)[
+    id
+  ];
+  if (!definition) {
+    throw new Error(`Unknown formation "${id}".`);
+  }
+  return definition;
+}
+
+export const SIM_SIZE = 64;
+export const SIM_TEXTURE_COUNT = 4;
+export const RGBA16F_BYTES_PER_TEXEL = 8;
+export const GPGPU_BYTES =
+  SIM_SIZE * SIM_SIZE * RGBA16F_BYTES_PER_TEXEL * SIM_TEXTURE_COUNT;
+export const GPGPU_KILOBYTES = GPGPU_BYTES / 1024;
+
 export interface TierConfig {
   particles: number;
   filaments: number;
@@ -11,28 +227,6 @@ export const TIER_CONFIG: Record<1 | 2 | 3, TierConfig> = {
   2: { particles: 1100, filaments: 4, pointerRadius: 0.24, octaves: 4, gpgpu: true },
   3: { particles: 2200, filaments: 6, pointerRadius: 0.2, octaves: 5, gpgpu: true },
 };
-
-export const JIN_FORMATION = {
-  id: 'jin',
-  name: 'Jin Kazama',
-  title: 'Ember Pillar',
-  radius: 0.34,
-  palette: {
-    deep: [0.05, 0.024, 0.02],
-    fog: [0.13, 0.05, 0.038],
-    glow: [0.7, 0.11, 0.055],
-    vein: [0.95, 0.3, 0.12],
-    tintA: [0.95, 0.34, 0.1],
-    tintB: [1, 0.72, 0.3],
-  },
-} as const;
-
-export const SIM_SIZE = 64;
-export const SIM_TEXTURE_COUNT = 4;
-export const RGBA16F_BYTES_PER_TEXEL = 8;
-export const GPGPU_BYTES =
-  SIM_SIZE * SIM_SIZE * RGBA16F_BYTES_PER_TEXEL * SIM_TEXTURE_COUNT;
-export const GPGPU_KILOBYTES = GPGPU_BYTES / 1024;
 
 function fract(value: number): number {
   return value - Math.floor(value);
@@ -51,24 +245,25 @@ export function hash11(value: number): number {
   return fract(p);
 }
 
-/** JS mirror of jinLambda: near-uniform arc-length spacing along the spiral. */
-export function jinLambda(base: number): number {
+/** JS mirror of formationLambda: near-uniform arc-length spacing along the spiral. */
+export function formationLambda(base: number): number {
   return base + 0.05 * Math.sin(Math.PI * 2 * base);
 }
 
 /**
- * JS mirror of labJinHome. Used only to seed the GPGPU textures; the shader
- * re-derives the target every frame. Adjacent filaments share a ribbon, so
- * Tier2 reads as a double helix, Tier3 as a triple, Tier1 as one ribbon. The
- * profile is wide through the lower-middle, tightens above centre and tapers
- * at the crown; 12 % of embers peel outward along the tangent.
+ * JS mirror of labJinHome. Used only to seed the GPGPU textures and to build
+ * the harness readback; the shader re-derives the target every frame.
+ * Adjacent filaments share a ribbon, so Tier2 reads as a double helix,
+ * Tier3 as a triple, Tier1 as one ribbon. The profile is wide through the
+ * lower-middle, tightens above centre and tapers at the crown; 12 % of
+ * embers peel outward along the tangent.
  */
-export function jinHome(
+function jinHome(
   lambda: number,
   seed: number,
   filament: number,
   time: number,
-  radius: number = JIN_FORMATION.radius,
+  radius: number = FORMATIONS.jin.radius,
   filaments: number = 6,
 ): [number, number, number] {
   const tau = Math.PI * 2;
@@ -108,6 +303,26 @@ export function jinHome(
   return [x, y, z];
 }
 
+/**
+ * Formation-aware home evaluation. Only `jin` is implemented; any other id
+ * throws rather than fabricates geometry. Used by the engine's readback
+ * mirror and seeding path — the shader path goes through FORMATION_GLSL.
+ */
+export function formationHome(
+  formationId: FormationId,
+  lambda: number,
+  seed: number,
+  filament: number,
+  time: number,
+  radius?: number,
+  filaments: number = 6,
+): [number, number, number] {
+  if (formationId !== 'jin') {
+    throw new Error(`Formation "${formationId}" has no home function.`);
+  }
+  return jinHome(lambda, seed, filament, time, radius, filaments);
+}
+
 export interface InitialParticleState {
   positions: Float32Array;
   velocities: Float32Array;
@@ -115,14 +330,21 @@ export interface InitialParticleState {
 
 /**
  * One texel = one particle. RGB is position/velocity, position.w is the stable
- * seed, velocity.w is the formation coordinate lambda.
+ * seed, velocity.w is the formation coordinate lambda. Only `jin` is seeded;
+ * requesting an unimplemented id throws before any GPU state is written.
  */
 export function buildInitialState(
   size: number,
   count: number,
   filaments: number,
   time: number,
+  formationId: FormationId = 'jin',
 ): InitialParticleState {
+  if (formationId !== 'jin') {
+    throw new Error(
+      `Cannot seed formation "${formationId}": it is not implemented in this build.`,
+    );
+  }
   const texels = size * size;
   const positions = new Float32Array(texels * 4);
   const velocities = new Float32Array(texels * 4);
@@ -136,15 +358,16 @@ export function buildInitialState(
     const base = active
       ? (Math.floor(index / filaments) + 0.5 + stagger) / rows
       : hash11(index * 3.71 + 1.23);
-    const lambda = jinLambda(base);
+    const lambda = formationLambda(base);
     const seed = hash11(index * 1.37 + 4.11);
     const filament = index % filaments;
-    const home = jinHome(
+    const home = formationHome(
+      formationId,
       lambda,
       seed,
       filament,
       time,
-      JIN_FORMATION.radius,
+      FORMATIONS[formationId].radius,
       filaments,
     );
 

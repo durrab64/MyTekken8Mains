@@ -163,6 +163,81 @@
       return { width, height, tier, before, during, settling, recovered };
     };
 
+    // Wait until the lab has mounted its engine and reports stats.
+    window.waitForEngine = async (lab, ms = 8000) => {
+      const start = Date.now();
+      for (;;) {
+        if (lab.getStats()) return true;
+        if (Date.now() - start > ms) return false;
+        await sleep(150);
+      }
+    };
+
+    // R2.5-0 switch lifecycle: Jin -> (rejected id) -> Jin, plus a
+    // deterministic reset/reseed pair. Only Jin may return true.
+    window.formationTest = async (width, height, tier = 2) => {
+      const frame = await window.loadFrame(width, height);
+      const win = frame.contentWindow;
+      const lab = await window.waitFor(() => win.__motionLab ?? null, 8000);
+      if (!lab) return { error: 'lab hooks missing' };
+      lab.setTier(tier);
+      const ready = await window.waitForEngine(lab);
+      if (!ready) return { error: 'engine did not come up', state: lab.getState() };
+      await sleep(1200);
+      const stats0 = lab.getStats();
+      const before = lab.getParticleState();
+      const state0 = lab.getState();
+
+      const rejected = lab.setFormation('lars');
+      await sleep(60);
+      const afterReject = {
+        formation: lab.getState().formation,
+        error: lab.getStats() ? lab.getStats().runtimeError : null,
+      };
+
+      const unknownReject = lab.setFormation('not-a-formation');
+      await sleep(60);
+
+      const switched = lab.setFormation('jin');
+      await sleep(120);
+      const afterSwitch = lab.getParticleState();
+
+      const resetOk = lab.reset();
+      await sleep(120);
+      const afterReset = lab.getParticleState();
+
+      lab.setPaused(true);
+      await sleep(400);
+      const paused = lab.getStats();
+      lab.setPaused(false);
+      await sleep(300);
+
+      return {
+        width,
+        height,
+        tier,
+        initialFormation: state0.formation,
+        formationName: stats0.formationName,
+        draws: stats0.drawsPerFrame,
+        gpgpuBytes: stats0.gpgpuBytes,
+        rejected,
+        afterReject,
+        unknownReject,
+        switched,
+        afterSwitch,
+        resetOk,
+        afterReset,
+        pausedDraws: paused.drawsPerFrame,
+        before,
+        glError: lab.checkGlError(),
+        statsSeen: {
+          mode: stats0.mode,
+          tier: stats0.tier,
+          formation: stats0.formation,
+        },
+      };
+    };
+
     window.contextTest = async (width, height) => {
       const frame = await window.loadFrame(width, height);
       const lab = frame.contentWindow.__motionLab;

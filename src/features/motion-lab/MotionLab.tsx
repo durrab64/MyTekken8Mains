@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { MotionLabEngine } from './engine/MotionLabEngine';
 import {
+  FORMATIONS,
+  FORMATION_ORDER,
   GPGPU_BYTES,
-  JIN_FORMATION,
   TIER_CONFIG,
 } from './engine/formations';
+import type { FormationId } from './engine/formations';
 import {
   DEFAULT_PARAMS,
   PARAM_LIMITS,
@@ -102,6 +104,7 @@ interface MotionLabTestHooks {
   clearGpuSamples: () => void;
   clearFrameSamples: () => void;
   setTier: (tier: Tier) => void;
+  setFormation: (id: string) => boolean;
   setParams: (params: Partial<LabParams>) => void;
   setPaused: (paused: boolean) => void;
   setResolutionScale: (scale: number) => void;
@@ -111,6 +114,7 @@ interface MotionLabTestHooks {
   checkGlError: () => string | null;
   getState: () => {
     tier: Tier;
+    formation: FormationId;
     reducedMotion: boolean;
     mode: 'gpu' | 'css';
     paused: boolean;
@@ -193,6 +197,8 @@ export default function MotionLab() {
   });
   const [paused, setPaused] = useState(false);
   const [resolutionScale, setResolutionScale] = useState(1);
+  const [formation, setFormation] = useState<FormationId>('jin');
+  const [wiping, setWiping] = useState(false);
   const [stats, setStats] = useState<LabStats | null>(null);
   const [engineError, setEngineError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
@@ -205,6 +211,8 @@ export default function MotionLab() {
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const engineRef = useRef<MotionLabEngine | null>(null);
+  const activeDefinition = FORMATIONS[formation];
+  const formationIndex = FORMATION_ORDER.indexOf(formation) + 1;
 
   const effectiveTier: Tier = reducedMotion ? 0 : tier;
   const mode: 'gpu' | 'css' = effectiveTier === 0 ? 'css' : 'gpu';
@@ -310,6 +318,29 @@ export default function MotionLab() {
     });
   }, [tier]);
 
+  // Approved 380 ms wipe (simple envelope): the stage fades opaque, the
+  // engine swaps the formation beneath it at midpoint, then the stage
+  // fades back. No cross-blend of formations, no morph.
+  const requestFormation = useCallback(
+    (id: FormationId) => {
+      if (reducedMotion || mode !== 'gpu') return;
+      if (engineError !== null) return;
+      if (stats?.context === 'lost' || stats?.context === 'failed') return;
+      if (id === formation) return;
+      setWiping(true);
+      window.setTimeout(() => {
+        const engine = engineRef.current;
+        const ok = engine ? engine.setFormation(id) : false;
+        if (ok) {
+          setFormation(id);
+        }
+        // A refusal is surfaced through the panel as an engine error.
+      }, 190);
+      window.setTimeout(() => setWiping(false), 380);
+    },
+    [formation, reducedMotion, mode, engineError, stats?.context],
+  );
+
   const loseContext = useCallback(() => {
     engineRef.current?.loseContextForTest();
   }, []);
@@ -350,6 +381,15 @@ export default function MotionLab() {
       clearFrameSamples: () => {
         engineRef.current?.clearFrameSamples();
       },
+      setFormation: (id: string) => {
+        const engine = engineRef.current;
+        if (!engine) return false;
+        const ok = engine.setFormation(id);
+        if (ok) {
+          setFormation(id as FormationId);
+        }
+        return ok;
+      },
       setTier: (value) => {
         setTier(value);
         if (isActiveTier(value)) {
@@ -378,6 +418,7 @@ export default function MotionLab() {
       },
       getState: () => ({
         tier,
+        formation,
         reducedMotion,
         mode,
         paused,
@@ -392,6 +433,7 @@ export default function MotionLab() {
   }, [
     testEnabled,
     tier,
+    formation,
     reducedMotion,
     mode,
     paused,
@@ -637,7 +679,7 @@ export default function MotionLab() {
               : 'CSS fallback'}
           </span>
           <span className="lab-top__sep">·</span>
-          <span>R2.3 / Stage A</span>
+          <span>R2.5 / Stage 0</span>
         </div>
       </header>
 
@@ -645,7 +687,7 @@ export default function MotionLab() {
         <div className="lab-left">
           <section
             className="lab-stage-wrap"
-            aria-label="Jin Ember Pillar motion lab"
+            aria-label={`${activeDefinition.character} — ${activeDefinition.name} motion lab`}
           >
             <div className="lab-stage">
               {mode === 'gpu' ? (
@@ -656,6 +698,9 @@ export default function MotionLab() {
                   data-dimmed={isCssFallback ? 'true' : 'false'}
                 />
               ) : null}
+              {wiping ? (
+                <div className="lab-wipe" aria-hidden="true" />
+              ) : null}
 
               {isCssFallback ? <CssFallback /> : null}
 
@@ -663,7 +708,8 @@ export default function MotionLab() {
 
               <div className="lab-stage__top">
                 <span className="lab-stage__index">
-                  01 / {JIN_FORMATION.name}
+                  {String(formationIndex).padStart(2, '0')} /{' '}
+                  {activeDefinition.name}
                 </span>
                 <span
                   className="lab-stage__mode"
@@ -769,6 +815,45 @@ export default function MotionLab() {
               ))}
             </div>
 
+            <div
+              className="lab-formation-row"
+              role="group"
+              aria-label="Formation"
+            >
+              {FORMATION_ORDER.map((id) => {
+                const def = FORMATIONS[id];
+                const active = formation === id;
+                const disabled = !def.implemented || reducedMotion;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className="lab-tier"
+                    aria-pressed={active}
+                    disabled={disabled}
+                    title={
+                      def.implemented
+                        ? `${def.character} — ${def.name}`
+                        : `${def.character} — planned, not implemented in this build`
+                    }
+                    onClick={() => requestFormation(id)}
+                  >
+                    <span className="lab-tier__id">
+                      {id.slice(0, 3).toUpperCase()}
+                    </span>
+                    <span className="lab-tier__name">{def.name}</span>
+                    <span className="lab-tier__detail">
+                      {def.implemented
+                        ? active
+                          ? 'active'
+                          : 'available'
+                        : 'planned'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="lab-render-row">
               <span className="lab-render-row__label">Render scale</span>
               <div
@@ -846,7 +931,8 @@ export default function MotionLab() {
         <aside className="lab-side">
           <section className="lab-intro">
             <p className="lab-kicker">
-              Stage A / {JIN_FORMATION.name}
+              {activeDefinition.id === 'jin' ? 'Approved' : 'Planned'} /{' '}
+              {activeDefinition.name}
             </p>
             <h1 className="lab-title">
               Ember <span>Pillar</span>
@@ -903,6 +989,14 @@ export default function MotionLab() {
               <MetricRow
                 label="tier"
                 value={`Tier ${stats?.tier ?? effectiveTier}`}
+              />
+              <MetricRow
+                label="formation"
+                value={stats?.formationName ?? activeDefinition.name}
+                tone={stats?.formation ? 'pass' : 'muted'}
+                hint={
+                  stats ? `R2.5 · ${stats.formation}` : 'initializing'
+                }
               />
               <MetricRow
                 label="particles"

@@ -1,3 +1,5 @@
+import type { FormationId } from './engine/formations';
+
 export type Tier = 0 | 1 | 2 | 3;
 export type ActiveTier = 1 | 2 | 3;
 export type SimulationMode = 'gpgpu' | 'analytic';
@@ -57,6 +59,9 @@ export interface LabStats {
   gpuMedianMs: number | null;
   gpuStatus: GpuTimingStatus;
   tier: ActiveTier;
+  /** Active formation identity. Only 'jin' is implemented in this build. */
+  formation: FormationId;
+  formationName: string;
   particleCount: number;
   filaments: number;
   mode: SimulationMode;

@@ -13,14 +13,16 @@ import {
 } from './gl';
 import type { GlGeometry } from './gl';
 import {
+  FORMATIONS,
+  FORMATION_INDEX,
   GPGPU_BYTES,
-  JIN_FORMATION,
   SIM_SIZE,
   SIM_TEXTURE_COUNT,
   TIER_CONFIG,
   buildInitialState,
-  jinHome,
+  formationHome,
 } from './formations';
+import type { FormationDefinition, FormationId } from './formations';
 import {
   ATMOSPHERE_FS,
   FULLSCREEN_VS,
@@ -92,6 +94,8 @@ export interface MotionLabOptions {
   tier: ActiveTier;
   params: LabParams;
   resolutionScale?: number;
+  /** Active formation. Only 'jin' is implemented; anything else throws at boot. */
+  formation?: FormationId;
   onStats: (stats: LabStats) => void;
 }
 
@@ -136,6 +140,7 @@ export class MotionLabEngine {
   private readonly onStats: (stats: LabStats) => void;
 
   private tier: ActiveTier;
+  private formationId: FormationId = 'jin';
   private params: LabParams;
   private caps: LabCapabilities;
   private mode: SimulationMode = 'analytic';
@@ -198,6 +203,16 @@ export class MotionLabEngine {
   constructor(canvas: HTMLCanvasElement, options: MotionLabOptions) {
     this.canvas = canvas;
     this.tier = options.tier;
+    const requested = options.formation ?? 'jin';
+    const definition = (
+      FORMATIONS as Record<string, FormationDefinition | undefined>
+    )[requested];
+    if (!definition || !definition.implemented) {
+      throw new Error(
+        `Formation "${requested}" is not implemented in this build (only "jin" is available).`,
+      );
+    }
+    this.formationId = definition.id;
     this.params = sanitizeParams(options.params);
     this.resolutionScale = clamp(
       options.resolutionScale ?? DEFAULT_RENDER_SCALE,
@@ -281,6 +296,49 @@ export class MotionLabEngine {
   setTier(tier: ActiveTier): void {
     if (this.disposed || this.tier === tier) return;
     this.applyTier(tier);
+  }
+
+  /**
+   * Formation switch lifecycle (approved switching architecture):
+   * 1. validate the requested id against the registry;
+   * 2. prepare the target formation's deterministic state (only `jin` exists);
+   * 3. re-seed beneath the caller's 380 ms wipe — the canvas hides the swap;
+   * 4. keep the active formation across context loss/restore (restore re-seeds it).
+   *
+   * Returns false and leaves the current formation running on refusal.
+   */
+  setFormation(id: string): boolean {
+    if (this.disposed) return false;
+    const definition = (
+      FORMATIONS as Record<string, FormationDefinition | undefined>
+    )[id];
+    if (!definition || !definition.implemented) {
+      this.runtimeError = `Formation "${id}" is not implemented in this build.`;
+      this.emitStats(true);
+      return false;
+    }
+    if (this.formationId === definition.id) {
+      return true;
+    }
+    this.formationId = definition.id;
+    this.runtimeError = null;
+    if (this.mode === 'gpgpu') {
+      try {
+        this.seedSimulation(this.simTime);
+        this.verifyFloatSimulation();
+      } catch (error) {
+        this.runtimeError =
+          error instanceof Error ? error.message : String(error);
+        this.emitStats(true);
+        return false;
+      }
+    }
+    // Formation-specific samples belong to the formation that produced them.
+    this.gpuSamples = [];
+    this.timer?.resetSamples();
+    this.frameMeter.reset();
+    this.emitStats(true);
+    return true;
   }
 
   setParams(params: Partial<LabParams>): void {
@@ -408,12 +466,13 @@ export class MotionLabEngine {
       const seed = positions[offset + 3];
       const lambda = velocities[offset + 3];
       const filament = index % config.filaments;
-      const home = jinHome(
+      const home = formationHome(
+        this.formationId,
         lambda,
         seed,
         filament,
         this.simTime,
-        JIN_FORMATION.radius,
+        FORMATIONS[this.formationId].radius,
         config.filaments,
       );
       const dx = positions[offset] - home[0];
@@ -517,6 +576,10 @@ export class MotionLabEngine {
       'uDeep',
       'uFog',
       'uGlow',
+      'uAtmosMode',
+      'uAtmosAnchor',
+      'uAtmosBand',
+      'uAtmosPulse',
     ]);
     this.velocityUniforms = uniformMap(gl, this.velocityProgram, [
       'uPosition',
@@ -539,6 +602,8 @@ export class MotionLabEngine {
       'uMaxSpeed',
       'uFormationRadius',
       'uFilaments',
+      'uCurlScale',
+      'uFormation',
     ]);
     this.positionUniforms = uniformMap(gl, this.positionProgram, [
       'uPosition',
@@ -557,6 +622,7 @@ export class MotionLabEngine {
       'uTintA',
       'uTintB',
       'uFog',
+      'uFormation',
     ]);
     this.analyticUniforms = uniformMap(gl, this.analyticProgram, [
       'uCount',
@@ -576,6 +642,7 @@ export class MotionLabEngine {
       'uTintA',
       'uTintB',
       'uFog',
+      'uFormation',
     ]);
 
     this.fullscreenGeometry = createGeometry(
@@ -792,6 +859,7 @@ export class MotionLabEngine {
       config.particles,
       config.filaments,
       time,
+      this.formationId,
     );
 
     for (const target of [this.simA, this.simB]) {
@@ -1171,6 +1239,7 @@ export class MotionLabEngine {
   private render(): void {
     const gl = this.gl;
     const { width, height, aspect, dpr } = this.viewport;
+    const activeDef = FORMATIONS[this.formationId];
 
     if (
       width < 2 ||
@@ -1206,21 +1275,38 @@ export class MotionLabEngine {
     gl.uniform1f(this.atmosphereUniforms.uAspect, aspect);
     gl.uniform3f(
       this.atmosphereUniforms.uDeep,
-      JIN_FORMATION.palette.deep[0],
-      JIN_FORMATION.palette.deep[1],
-      JIN_FORMATION.palette.deep[2],
+      activeDef.palette.deep[0],
+      activeDef.palette.deep[1],
+      activeDef.palette.deep[2],
     );
     gl.uniform3f(
       this.atmosphereUniforms.uFog,
-      JIN_FORMATION.palette.fog[0],
-      JIN_FORMATION.palette.fog[1],
-      JIN_FORMATION.palette.fog[2],
+      activeDef.palette.fog[0],
+      activeDef.palette.fog[1],
+      activeDef.palette.fog[2],
     );
     gl.uniform3f(
       this.atmosphereUniforms.uGlow,
-      JIN_FORMATION.palette.glow[0],
-      JIN_FORMATION.palette.glow[1],
-      JIN_FORMATION.palette.glow[2],
+      activeDef.palette.glow[0],
+      activeDef.palette.glow[1],
+      activeDef.palette.glow[2],
+    );
+    gl.uniform1i(
+      this.atmosphereUniforms.uAtmosMode,
+      activeDef.atmosphere.mode,
+    );
+    gl.uniform2f(
+      this.atmosphereUniforms.uAtmosAnchor,
+      activeDef.atmosphere.anchor[0],
+      activeDef.atmosphere.anchor[1],
+    );
+    gl.uniform1f(
+      this.atmosphereUniforms.uAtmosBand,
+      activeDef.atmosphere.band,
+    );
+    gl.uniform1f(
+      this.atmosphereUniforms.uAtmosPulse,
+      activeDef.atmosphere.pulsePeriod,
     );
     gl.bindVertexArray(this.fullscreenGeometry.vao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -1245,21 +1331,25 @@ export class MotionLabEngine {
       gl.uniform1f(this.gpgpuUniforms.uStageScale, STAGE_SCALE);
       gl.uniform3f(
         this.gpgpuUniforms.uTintA,
-        JIN_FORMATION.palette.tintA[0],
-        JIN_FORMATION.palette.tintA[1],
-        JIN_FORMATION.palette.tintA[2],
+        activeDef.palette.tintA[0],
+        activeDef.palette.tintA[1],
+        activeDef.palette.tintA[2],
       );
       gl.uniform3f(
         this.gpgpuUniforms.uTintB,
-        JIN_FORMATION.palette.tintB[0],
-        JIN_FORMATION.palette.tintB[1],
-        JIN_FORMATION.palette.tintB[2],
+        activeDef.palette.tintB[0],
+        activeDef.palette.tintB[1],
+        activeDef.palette.tintB[2],
       );
       gl.uniform3f(
         this.gpgpuUniforms.uFog,
-        JIN_FORMATION.palette.fog[0],
-        JIN_FORMATION.palette.fog[1],
-        JIN_FORMATION.palette.fog[2],
+        activeDef.palette.fog[0],
+        activeDef.palette.fog[1],
+        activeDef.palette.fog[2],
+      );
+      gl.uniform1i(
+        this.gpgpuUniforms.uFormation,
+        FORMATION_INDEX[this.formationId],
       );
     } else if (this.analyticProgram) {
       gl.useProgram(this.analyticProgram);
@@ -1267,11 +1357,15 @@ export class MotionLabEngine {
       gl.uniform1f(this.analyticUniforms.uTime, this.simTime);
       gl.uniform1f(
         this.analyticUniforms.uFormationRadius,
-        JIN_FORMATION.radius,
+        activeDef.radius,
       );
       gl.uniform1f(
         this.analyticUniforms.uFilaments,
         TIER_CONFIG[this.tier].filaments,
+      );
+      gl.uniform1i(
+        this.analyticUniforms.uFormation,
+        FORMATION_INDEX[this.formationId],
       );
       gl.uniform2f(
         this.analyticUniforms.uPointer,
@@ -1301,21 +1395,21 @@ export class MotionLabEngine {
       gl.uniform1f(this.analyticUniforms.uStageScale, STAGE_SCALE);
       gl.uniform3f(
         this.analyticUniforms.uTintA,
-        JIN_FORMATION.palette.tintA[0],
-        JIN_FORMATION.palette.tintA[1],
-        JIN_FORMATION.palette.tintA[2],
+        activeDef.palette.tintA[0],
+        activeDef.palette.tintA[1],
+        activeDef.palette.tintA[2],
       );
       gl.uniform3f(
         this.analyticUniforms.uTintB,
-        JIN_FORMATION.palette.tintB[0],
-        JIN_FORMATION.palette.tintB[1],
-        JIN_FORMATION.palette.tintB[2],
+        activeDef.palette.tintB[0],
+        activeDef.palette.tintB[1],
+        activeDef.palette.tintB[2],
       );
       gl.uniform3f(
         this.analyticUniforms.uFog,
-        JIN_FORMATION.palette.fog[0],
-        JIN_FORMATION.palette.fog[1],
-        JIN_FORMATION.palette.fog[2],
+        activeDef.palette.fog[0],
+        activeDef.palette.fog[1],
+        activeDef.palette.fog[2],
       );
     }
 
@@ -1352,6 +1446,7 @@ export class MotionLabEngine {
     }
 
     const config = TIER_CONFIG[this.tier];
+    const activeDef = FORMATIONS[this.formationId];
 
     gl.disable(gl.BLEND);
     gl.bindVertexArray(geometry.vao);
@@ -1417,11 +1512,16 @@ export class MotionLabEngine {
     gl.uniform1f(this.velocityUniforms.uMaxSpeed, MAX_SPEED);
     gl.uniform1f(
       this.velocityUniforms.uFormationRadius,
-      JIN_FORMATION.radius,
+      activeDef.radius,
     );
     gl.uniform1f(
       this.velocityUniforms.uFilaments,
       config.filaments,
+    );
+    gl.uniform1f(this.velocityUniforms.uCurlScale, activeDef.curlScale);
+    gl.uniform1i(
+      this.velocityUniforms.uFormation,
+      FORMATION_INDEX[this.formationId],
     );
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
@@ -1479,6 +1579,8 @@ export class MotionLabEngine {
       gpuMedianMs: gpuMedian,
       gpuStatus,
       tier: this.tier,
+      formation: this.formationId,
+      formationName: FORMATIONS[this.formationId].name,
       particleCount: config.particles,
       filaments: config.filaments,
       mode: this.mode,

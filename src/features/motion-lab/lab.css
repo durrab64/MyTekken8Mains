@@ -1074,3 +1074,42 @@ code {
     transition-duration: 0.01ms !important;
   }
 }
+
+.lab-formation-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.lab-formation-row .lab-tier {
+  min-height: 48px;
+  padding: 0.45rem 0.5rem;
+}
+
+.lab-formation-row .lab-tier__name {
+  font-size: 0.66rem;
+  line-height: 1.25;
+}
+
+.lab-wipe {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: #0b0b0c;
+  opacity: 0;
+  pointer-events: none;
+  animation: labWipe 380ms cubic-bezier(0.25, 0.1, 0.25, 1) both;
+}
+
+@keyframes labWipe {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
