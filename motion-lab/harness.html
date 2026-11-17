@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Motion Lab — local test harness</title>
+  <style>
+    html, body { margin: 0; background: #0b0b0c; color: #ede6da; font: 12px/1.5 ui-monospace, Consolas, monospace; }
+    #stage { position: relative; }
+    iframe { display: block; border: 1px solid #333; background: #000; }
+    .note { padding: 8px 12px; color: #948d83; }
+  </style>
+</head>
+<body>
+  <p class="note">Local R2.3 measurement harness. Not linked from the lab or the site.</p>
+  <div id="stage"></div>
+  <script>
+    window.sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    window.stats = (values) => {
+      if (!values || !values.length) return null;
+      const sorted = [...values].sort((a, b) => a - b);
+      const q = (p) => {
+        const position = (sorted.length - 1) * p;
+        const low = Math.floor(position);
+        const high = Math.ceil(position);
+        return sorted[low] + (sorted[high] - sorted[low]) * (position - low);
+      };
+      return {
+        n: sorted.length,
+        min: sorted[0],
+        median: q(0.5),
+        p95: q(0.95),
+        max: sorted[sorted.length - 1],
+      };
+    };
+
+    window.waitFor = async (fn, timeout = 12000) => {
+      const started = performance.now();
+      while (performance.now() - started < timeout) {
+        try {
+          const value = fn();
+          if (value) return value;
+        } catch (error) {
+          /* not ready */
+        }
+        await sleep(40);
+      }
+      return null;
+    };
+
+    window.loadFrame = async (width, height, query = '') => {
+      const host = document.getElementById('stage');
+      host.textContent = '';
+      const frame = document.createElement('iframe');
+      frame.width = width;
+      frame.height = height;
+      frame.style.width = width + 'px';
+      frame.style.height = height + 'px';
+      frame.src = '/motion-lab/?test=1&rafshim=1' + query;
+      host.appendChild(frame);
+      await new Promise((resolve, reject) => {
+        frame.onload = resolve;
+        frame.onerror = reject;
+      });
+      const ready = await window.waitFor(() => {
+        const win = frame.contentWindow;
+        return win && win.__motionLab && win.__motionLab.getState();
+      });
+      if (!ready) throw new Error('lab did not expose stats');
+      return frame;
+    };
+
+    window.frameInfo = (frame) => {
+      const win = frame.contentWindow;
+      const doc = win.document;
+      const canvas = doc.querySelector('canvas');
+      const rect = canvas ? canvas.getBoundingClientRect() : null;
+      return {
+        viewport: [win.innerWidth, win.innerHeight],
+        dpr: win.devicePixelRatio,
+        state: win.__motionLab.getState(),
+        stats: win.__motionLab.getStats(),
+        canvas: canvas
+          ? {
+              css: [rect.width, rect.height],
+              backing: [canvas.width, canvas.height],
+              dimmed: canvas.dataset.dimmed,
+            }
+          : null,
+        text: doc.body.innerText.slice(0, 400),
+      };
+    };
+
+    window.measureTier = async (width, height, tier, settleMs = 1200, sampleMs = 2600) => {
+      const frame = await window.loadFrame(width, height);
+      const lab = frame.contentWindow.__motionLab;
+      lab.setTier(tier);
+      await sleep(settleMs);
+      lab.clearGpuSamples();
+      lab.clearFrameSamples();
+      await sleep(sampleMs);
+      const stats = lab.getStats();
+      const gpu = window.stats(lab.getGpuSamples());
+      const frames = lab.getFrameSamples().slice(-90);
+      return {
+        tier,
+        info: window.frameInfo(frame),
+        gpu,
+        frame: window.stats(frames.slice(-90)),
+        draws: stats ? stats.drawsPerFrame : null,
+        mode: stats ? stats.mode : null,
+        particles: stats ? stats.particleCount : null,
+        gpgpuBytes: stats ? stats.gpgpuBytes : null,
+      };
+    };
+
+    window.pointerTest = async (width, height, tier = 2) => {
+      const frame = await window.loadFrame(width, height);
+      const win = frame.contentWindow;
+      const lab = win.__motionLab;
+      const canvas = win.document.querySelector('canvas');
+      const rect = canvas.getBoundingClientRect();
+      lab.setTier(tier);
+      await sleep(1500);
+
+      const dispatch = (type, nx, ny) => {
+        canvas.dispatchEvent(new win.PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          pointerType: 'mouse',
+          isPrimary: true,
+          clientX: rect.left + nx * rect.width,
+          clientY: rect.top + ny * rect.height,
+        }));
+      };
+
+      dispatch('pointerenter', 0.5, 0.5);
+      await sleep(120);
+      const before = lab.getParticleState();
+
+      // Two slow orbits through the column: sustained, coherent disturbance
+      // rather than a single pass that only clips a few particles.
+      for (let index = 0; index <= 80; index += 1) {
+        const angle = (index / 80) * Math.PI * 4;
+        dispatch(
+          'pointermove',
+          0.5 + Math.cos(angle) * 0.18,
+          0.5 + Math.sin(angle) * 0.2,
+        );
+        await sleep(14);
+      }
+      await sleep(40);
+      const during = lab.getParticleState();
+
+      dispatch('pointerleave', 0.68, 0.5);
+      await sleep(350);
+      const settling = lab.getParticleState();
+      await sleep(1500);
+      const recovered = lab.getParticleState();
+
+      return { width, height, tier, before, during, settling, recovered };
+    };
+
+    window.contextTest = async (width, height) => {
+      const frame = await window.loadFrame(width, height);
+      const lab = frame.contentWindow.__motionLab;
+      await sleep(1000);
+      const before = lab.getStats();
+      const lostRequested = lab.loseContext();
+      await sleep(400);
+      const lost = lab.getStats();
+      const restoredRequested = lab.restoreContext();
+      await window.waitFor(() => {
+        const stats = lab.getStats();
+        return stats && stats.context === 'active' && stats.mode === 'gpgpu';
+      }, 12000);
+      await sleep(900);
+      const restored = lab.getStats();
+      return {
+        lostRequested,
+        restoredRequested,
+        before: before && { context: before.context, mode: before.mode },
+        lost: lost && { context: lost.context, gpuStatus: lost.gpuStatus },
+        restored: restored && {
+          context: restored.context,
+          mode: restored.mode,
+          floatVerified: restored.capabilities.floatTargetsVerified,
+          gpuStatus: restored.gpuStatus,
+          draws: restored.drawsPerFrame,
+        },
+        particleState: lab.getParticleState(),
+        glError: lab.checkGlError(),
+      };
+    };
+
+    window.resizeTest = async (width, height, tier = 2) => {
+      const frame = await window.loadFrame(width, height);
+      const lab = frame.contentWindow.__motionLab;
+      lab.setTier(tier);
+      await sleep(900);
+      const first = window.frameInfo(frame);
+      frame.style.width = '768px';
+      frame.style.height = '1024px';
+      frame.width = 768;
+      frame.height = 1024;
+      await sleep(900);
+      const second = window.frameInfo(frame);
+      return {
+        first: {
+          viewport: first.viewport,
+          backing: first.canvas.backing,
+          css: first.canvas.css,
+        },
+        second: {
+          viewport: second.viewport,
+          backing: second.canvas.backing,
+          css: second.canvas.css,
+        },
+        error: second.stats && second.stats.runtimeError,
+        glError: lab.checkGlError(),
+      };
+    };
+
+    window.reducedMotionTest = async (width, height) => {
+      const frame = await window.loadFrame(width, height, '&reduce=1');
+      const win = frame.contentWindow;
+      await sleep(900);
+      return {
+        state: win.__motionLab.getState(),
+        stats: win.__motionLab.getStats(),
+        canvasCount: win.document.querySelectorAll('canvas').length,
+        fallbackCount: win.document.querySelectorAll('.lab-fallback').length,
+        text: win.document.body.innerText.slice(0, 480),
+      };
+    };
+
+    window.capabilityTest = async (width, height, query) => {
+      const frame = await window.loadFrame(width, height, query);
+      await sleep(1400);
+      const win = frame.contentWindow;
+      const lab = win.__motionLab;
+      const stats = lab.getStats();
+      return {
+        query,
+        state: lab.getState(),
+        stats: stats && {
+          mode: stats.mode,
+          fallbackReason: stats.fallbackReason,
+          draws: stats.drawsPerFrame,
+          passes: stats.passesPerFrame,
+          simSize: stats.simSize,
+          gpgpuBytes: stats.gpgpuBytes,
+          gpgpuTextures: stats.gpgpuTextures,
+          gpuStatus: stats.gpuStatus,
+          gpuMs: stats.gpuMs,
+          colorBufferFloat: stats.capabilities.colorBufferFloat,
+          floatVerified: stats.capabilities.floatTargetsVerified,
+          timerQuery: stats.capabilities.timerQuery,
+          runtimeError: stats.runtimeError,
+        },
+        panel: win.document.querySelector('.lab-panel')?.innerText ?? null,
+        glError: lab.checkGlError(),
+      };
+    };
+
+    window.prepareStage = async (width) => {
+      document.querySelector('.note').style.display = 'none';
+      document.body.style.margin = '0';
+      document.documentElement.style.width = width + 'px';
+      document.body.style.width = width + 'px';
+      const stage = document.getElementById('stage');
+      stage.style.width = width + 'px';
+      const frame = stage.querySelector('iframe');
+      if (frame) frame.style.border = '0';
+      window.scrollTo(0, 0);
+      await sleep(300);
+      return frame ? window.frameInfo(frame) : null;
+    };
+
+    // Captures the live drawing buffer as a PNG download. Used because the
+    // desktop screenshot path is unavailable when the host window is occluded.
+    window.captureCanvas = async (name = 'capture') => {
+      const frame = document.getElementById('stage').querySelector('iframe');
+      const win = frame.contentWindow;
+      const canvas = win.document.querySelector('canvas');
+      if (!canvas) throw new Error('no canvas');
+      const url = await new Promise((resolve) => {
+        win.requestAnimationFrame(() => {
+          win.requestAnimationFrame(() => {
+            resolve(canvas.toDataURL('image/png'));
+          });
+        });
+      });
+      const a = win.document.createElement('a');
+      a.href = url;
+      a.download = name + '.png';
+      win.document.body.appendChild(a);
+      a.click();
+      a.remove();
+      await sleep(700);
+      const info = window.frameInfo(frame);
+      return {
+        name,
+        chars: url.length,
+        viewport: info.viewport,
+        canvas: info.canvas,
+        stats: info.stats && {
+          tier: info.stats.tier,
+          mode: info.stats.mode,
+          particles: info.stats.particleCount,
+        },
+      };
+    };
+
+    window.loadLab = async (width, height) => {
+      const frame = await window.loadFrame(width, height);
+      return window.frameInfo(frame);
+    };
+  </script>
+</body>
+</html>
