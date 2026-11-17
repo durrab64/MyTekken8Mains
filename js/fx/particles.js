@@ -21,7 +21,7 @@ export function createParticles(gl) {
     throw new Error(`particle program link failed: ${log}`);
   }
   const u = {};
-  for (const n of ['uTime', 'uSwirl', 'uSize', 'uSeed', 'uPointer', 'uAspect', 'uOrigin', 'uDir', 'uTintA', 'uTintB']) {
+  for (const n of ['uTime', 'uSwirl', 'uSize', 'uSeed', 'uPointer', 'uAspect', 'uOrigin', 'uDir', 'uTintA', 'uTintB', 'uSharp']) {
     u[n] = gl.getUniformLocation(program, n);
   }
   gl.useProgram(program);
@@ -37,6 +37,7 @@ export function applyParticleEnv(gl, particles, env) {
   gl.uniform2fv(particles.u.uDir, env.dir);
   gl.uniform1f(particles.u.uSwirl, env.swirl);
   gl.uniform1f(particles.u.uSize, env.size);
+  gl.uniform1f(particles.u.uSharp, env.sharp);
   gl.uniform3fv(particles.u.uTintA, env.tintA);
   gl.uniform3fv(particles.u.uTintB, env.tintB);
   gl.uniform1f(particles.u.uSeed, Math.random() * 1000);

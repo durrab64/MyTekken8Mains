@@ -137,7 +137,16 @@ Owner per-character review request — reply per character with **APPROVE** or r
 
 Shaders in ES-module template literals; ES2019+ output; static relative imports over HTTP/2; zero custom textures (procedural sprite) ⇒ no texture-compression pipeline needed. **Decision recorded: no bundler, no transpiler, no compiler.** If profiling ever justifies otherwise, raised as a spec amendment first.
 
-**P5.7 Jin artwork-mask exception:** The existing Jin character PNG may be uploaded at runtime as a non-displayed alpha mask, exclusively when the URL explicitly contains `?art=on`, the active character is Jin, and the active rendering tier is Tier2 or Tier3. This is a narrowly scoped exception to the zero-custom-textures restriction; it does not authorize a new texture asset or texture-compression pipeline. The existing WebGL2 context and fullscreen canvas must be reused. No additional canvas, WebGL context, shader program, render pass, draw call, or animation loop may be introduced. The mask must not be displayed as a replacement for the existing DOM artwork. No other character or visual effect may use this exception.
+**P5.7 five-character artwork-mask exception:** The existing PNG artwork for Jin, Claudio, Dragunov, Victor and Lars may be uploaded at runtime as a non-displayed alpha mask. Activation requires the explicit `?art=on` URL parameter, the corresponding character being active, and Tier2 or Tier3.
+
+- Only the active character's own existing DOM image may be uploaded.
+- Never use one character's mask for another character.
+- Never display the mask as replacement artwork.
+- Reuse the existing WebGL2 context, fullscreen canvas, texture infrastructure, shader program and existing draw.
+- No additional canvas, context, shader program, render pass, draw call, animation loop, texture asset or texture-compression pipeline.
+- Preserve all existing reduced-motion, Tier0, Tier1, context-loss and fallback behavior.
+
+This is a narrowly scoped exception to the zero-custom-textures restriction. It does not broaden the exception to other effects or characters beyond these five, and it does not authorize a new texture asset or texture-compression pipeline.
 
 ### 8.2 Isolated renderer interface (owner-mandated)
 

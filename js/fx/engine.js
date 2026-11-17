@@ -128,7 +128,7 @@ function artInit() {
 function artLoad() {
   if (artState) return;
   const T = gl.TEXTURE_2D;
-  if (!artImg) artImg = document.querySelector('#jin img');
+  if (!artImg) artImg = document.querySelector('#'+state.environment+' img');
   if (!artImg || !artImg.complete) return;
   if (!artImg.naturalWidth) { artState = -1; return; }
   gl.bindTexture(T, artTex);
@@ -137,7 +137,7 @@ function artLoad() {
   artState = 1;
 }
 function artFrame() {
-  const on = ART && state.environment === 'jin' && TIER_CAPS[state.entryTier]?.art === 1;
+  const on = ART && TIER_CAPS[state.entryTier]?.art === 1;
   if (on && !artState) artLoad();
   if (!on || artState !== 1) return gl.uniform4f(uniforms.uArtRect, 0, 0, 0, 0);
   const r = artImg.getBoundingClientRect(), w = canvasEl.clientWidth, h = canvasEl.clientHeight;
@@ -209,6 +209,7 @@ function teardownGl(lost) {
   uniforms = null;
   artTex = null;
   artState = 0;
+  artImg = null;
   gl = null;
 }
 function hookContext(c) {
@@ -484,6 +485,7 @@ function setEnvironment(id) {
   state.environment = env;
   document.body.dataset.env = env;
   if (gl && !same) {
+    artImg=null;artState=0;
     wipe.from = { deep: [...disp.deep], fog: [...disp.fog], glow: [...disp.glow], vein: [...disp.vein], mode: disp.mode };
     wipe.to = environments[env] ?? environments.jin;
     wipe.start = performance.now();

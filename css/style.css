@@ -496,10 +496,10 @@ body::before {
   --stage-glow: var(--accent-glow);
 }
 .stage--jin      { --stage-accent: var(--jin-accent);      --stage-glow: var(--jin-glow); }
-.stage--claudio  { --stage-accent: var(--claudio-accent);  --stage-glow: var(--claudio-glow); --stage-accent-strong: var(--claudio-accent); }
-.stage--dragunov { --stage-accent: var(--dragunov-accent); --stage-glow: var(--dragunov-glow); --stage-accent-strong: #B9CDA9; }
-.stage--victor   { --stage-accent: var(--victor-accent);   --stage-glow: var(--victor-glow); --stage-accent-strong: #E8E2D2; }
-.stage--lars     { --stage-accent: var(--lars-accent);     --stage-glow: var(--lars-glow); --stage-accent-strong: var(--lars-accent); }
+.stage--claudio  { --stage-accent: var(--claudio-accent);  --stage-glow: var(--claudio-glow); --stage-accent-strong: #E7CB8E; }
+.stage--dragunov { --stage-accent: var(--dragunov-accent); --stage-glow: var(--dragunov-glow); --stage-accent-strong: #D9E6EE; }
+.stage--victor   { --stage-accent: var(--victor-accent);   --stage-glow: var(--victor-glow); --stage-accent-strong: #22D3EE; }
+.stage--lars     { --stage-accent: var(--lars-accent);     --stage-glow: var(--lars-glow); --stage-accent-strong: #FFD54A; }
 
 .stage::before {
   content: '';
@@ -508,10 +508,10 @@ body::before {
   z-index: -1;
 }
 .stage--jin::before      { background: radial-gradient(62% 64% at 50% 42%, rgba(220, 38, 38, 0.16) 0%, transparent 62%); }
-.stage--claudio::before  { background: radial-gradient(62% 64% at 50% 42%, rgba(125, 211, 252, 0.13) 0%, transparent 62%); }
-.stage--dragunov::before { background: radial-gradient(62% 64% at 50% 42%, rgba(157, 176, 140, 0.13) 0%, transparent 62%); }
-.stage--victor::before   { background: radial-gradient(62% 64% at 50% 42%, rgba(216, 205, 180, 0.12) 0%, transparent 62%); }
-.stage--lars::before     { background: radial-gradient(62% 64% at 50% 42%, rgba(103, 232, 249, 0.13) 0%, transparent 62%); }
+.stage--claudio::before  { background: radial-gradient(62% 64% at 50% 42%, rgba(125, 211, 252, 0.15) 0%, transparent 62%); }
+.stage--dragunov::before { background: radial-gradient(62% 64% at 50% 42%, rgba(168, 192, 212, 0.15) 0%, transparent 62%); }
+.stage--victor::before   { background: radial-gradient(62% 64% at 50% 42%, rgba(167, 139, 250, 0.16) 0%, transparent 62%); }
+.stage--lars::before     { background: radial-gradient(62% 64% at 50% 42%, rgba(56, 189, 248, 0.16) 0%, transparent 62%); }
 .stage--flip .stage-art { order: 2; }
 
 .stage-inner {
@@ -1025,25 +1025,25 @@ body[data-env='jin'] {
 }
 body[data-env='claudio'] {
   background:
-    radial-gradient(130% 70% at 50% -12%, rgba(125, 211, 252, 0.13) 0%, transparent 58%),
-    radial-gradient(120% 60% at 50% 112%, rgba(216, 180, 90, 0.09) 0%, transparent 62%),
+    radial-gradient(130% 70% at 50% -12%, rgba(125, 211, 252, 0.15) 0%, transparent 58%),
+    radial-gradient(120% 60% at 50% 112%, rgba(216, 180, 90, 0.12) 0%, transparent 62%),
     var(--bg);
 }
 body[data-env='dragunov'] {
   background:
-    radial-gradient(130% 70% at 50% -12%, rgba(157, 176, 140, 0.12) 0%, transparent 58%),
-    radial-gradient(130% 62% at 50% 112%, rgba(120, 132, 116, 0.12) 0%, transparent 64%),
+    radial-gradient(130% 70% at 50% -12%, rgba(168, 192, 212, 0.14) 0%, transparent 58%),
+    radial-gradient(130% 62% at 50% 112%, rgba(103, 126, 146, 0.13) 0%, transparent 64%),
     var(--bg);
 }
 body[data-env='victor'] {
   background:
-    radial-gradient(110% 58% at 50% -10%, rgba(216, 205, 180, 0.14) 0%, transparent 56%),
-    radial-gradient(120% 60% at 50% 112%, rgba(216, 205, 180, 0.07) 0%, transparent 62%),
+    radial-gradient(110% 58% at 50% -10%, rgba(167, 139, 250, 0.16) 0%, transparent 56%),
+    radial-gradient(120% 60% at 50% 112%, rgba(34, 211, 238, 0.12) 0%, transparent 62%),
     var(--bg);
 }
 body[data-env='lars'] {
   background:
-    radial-gradient(120% 66% at 50% -12%, rgba(103, 232, 249, 0.13) 0%, transparent 58%),
-    radial-gradient(120% 60% at 50% 112%, rgba(103, 232, 249, 0.08) 0%, transparent 62%),
+    radial-gradient(120% 66% at 50% -12%, rgba(56, 189, 248, 0.17) 0%, transparent 58%),
+    radial-gradient(120% 60% at 50% 112%, rgba(250, 204, 21, 0.12) 0%, transparent 62%),
     var(--bg);
 }

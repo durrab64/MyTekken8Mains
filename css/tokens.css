@@ -21,13 +21,13 @@
   --jin-accent: #DC2626;
   --jin-glow: rgba(220, 38, 38, 0.42);
   --claudio-accent: #7DD3FC;
-  --claudio-glow: rgba(125, 211, 252, 0.34);
-  --dragunov-accent: #9DB08C;
-  --dragunov-glow: rgba(157, 176, 140, 0.32);
-  --victor-accent: #D8CDB4;
-  --victor-glow: rgba(216, 205, 180, 0.32);
-  --lars-accent: #67E8F9;
-  --lars-glow: rgba(103, 232, 249, 0.32);
+  --claudio-glow: rgba(125, 211, 252, 0.36);
+  --dragunov-accent: #A8C0D4;
+  --dragunov-glow: rgba(168, 192, 212, 0.36);
+  --victor-accent: #A78BFA;
+  --victor-glow: rgba(167, 139, 250, 0.38);
+  --lars-accent: #38BDF8;
+  --lars-glow: rgba(56, 189, 248, 0.42);
 
   /* --- Type --- */
   --text: #EDE6DA;                     /* warm ivory */
