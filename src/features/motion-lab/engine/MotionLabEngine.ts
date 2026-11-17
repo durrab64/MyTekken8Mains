@@ -22,7 +22,7 @@ import {
   buildInitialState,
   formationHome,
 } from './formations';
-import type { FormationDefinition, FormationId } from './formations';
+import type { FormationDefinition, FormationDetail, FormationId } from './formations';
 import {
   ATMOSPHERE_FS,
   FULLSCREEN_VS,
@@ -293,6 +293,10 @@ export class MotionLabEngine {
     this.frameMeter.reset();
   }
 
+  private formationDetail(): FormationDetail {
+    return this.tier === 1 ? 0 : this.tier === 2 ? 1 : 2;
+  }
+
   setTier(tier: ActiveTier): void {
     if (this.disposed || this.tier === tier) return;
     this.applyTier(tier);
@@ -474,6 +478,7 @@ export class MotionLabEngine {
         this.simTime,
         FORMATIONS[this.formationId].radius,
         config.filaments,
+        this.formationDetail(),
       );
       const dx = positions[offset] - home[0];
       const dy = positions[offset + 1] - home[1];
@@ -604,6 +609,7 @@ export class MotionLabEngine {
       'uFilaments',
       'uCurlScale',
       'uFormation',
+      'uFormationDetail',
     ]);
     this.positionUniforms = uniformMap(gl, this.positionProgram, [
       'uPosition',
@@ -623,6 +629,9 @@ export class MotionLabEngine {
       'uTintB',
       'uFog',
       'uFormation',
+      'uFormationDetail',
+      'uStretchBase',
+      'uStretchSpeed',
     ]);
     this.analyticUniforms = uniformMap(gl, this.analyticProgram, [
       'uCount',
@@ -643,6 +652,9 @@ export class MotionLabEngine {
       'uTintB',
       'uFog',
       'uFormation',
+      'uFormationDetail',
+      'uStretchBase',
+      'uStretchSpeed',
     ]);
 
     this.fullscreenGeometry = createGeometry(
@@ -860,6 +872,7 @@ export class MotionLabEngine {
       config.filaments,
       time,
       this.formationId,
+      this.formationDetail(),
     );
 
     for (const target of [this.simA, this.simB]) {
@@ -1351,6 +1364,18 @@ export class MotionLabEngine {
         this.gpgpuUniforms.uFormation,
         FORMATION_INDEX[this.formationId],
       );
+      gl.uniform1i(
+        this.gpgpuUniforms.uFormationDetail,
+        this.formationDetail(),
+      );
+      gl.uniform1f(
+        this.gpgpuUniforms.uStretchBase,
+        activeDef.stretchBase,
+      );
+      gl.uniform1f(
+        this.gpgpuUniforms.uStretchSpeed,
+        activeDef.stretchSpeed,
+      );
     } else if (this.analyticProgram) {
       gl.useProgram(this.analyticProgram);
       gl.uniform1i(this.analyticUniforms.uCount, count);
@@ -1366,6 +1391,18 @@ export class MotionLabEngine {
       gl.uniform1i(
         this.analyticUniforms.uFormation,
         FORMATION_INDEX[this.formationId],
+      );
+      gl.uniform1i(
+        this.analyticUniforms.uFormationDetail,
+        this.formationDetail(),
+      );
+      gl.uniform1f(
+        this.analyticUniforms.uStretchBase,
+        activeDef.stretchBase,
+      );
+      gl.uniform1f(
+        this.analyticUniforms.uStretchSpeed,
+        activeDef.stretchSpeed,
       );
       gl.uniform2f(
         this.analyticUniforms.uPointer,
@@ -1522,6 +1559,10 @@ export class MotionLabEngine {
     gl.uniform1i(
       this.velocityUniforms.uFormation,
       FORMATION_INDEX[this.formationId],
+    );
+    gl.uniform1i(
+      this.velocityUniforms.uFormationDetail,
+      this.formationDetail(),
     );
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 

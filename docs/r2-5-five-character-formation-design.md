@@ -686,3 +686,22 @@ No production renderer/styles/components/assets changes; no `docs/spec.md` edits
 This milestone delivers only this document. Proposed next action: owner review of §14.2 decision list, then authorisation of R2.5-0 (infrastructure + Jin re-baseline) as a stand-alone stage. No formation code exists and none may be written until that approval.
 
 *Stopping for owner review.*
+
+---
+
+## 18. Implementation status (R2.5-1, recorded after implementation)
+
+**What shipped:** Jin (approved reference) + **Claudio — Radiant Orbit** are implemented and selectable in the isolated lab. Dragunov, Victor and Lars remain inert schema entries (`implemented: false`).
+
+**Delivered behaviour vs this document:**
+- Nested inclined orbits at **±22°** (not the sketch's ±14° — the approved look was illegible at 1,100 particles; radii 0.22 / 0.42 / 0.68 keep planes distinct). [Deviation — owner flag required]
+- The **crown** hangs as an **azimuth-rotated vertical ellipse** (~62° about y, z-offset −0.05), not a literal y–z plane ring (edge-on, invisible). Same intent, restrained visibility. [Deviation — owner flag required]
+- The **focal star is a treatment of existing particles** (comet-like λ spread ±0.45, gaussian radius σ≈0.02, 8% of the budget) — no extra allocation, per the owner's approved amendment. [Approved amendment]
+- **Component partition** (T2): star 8% / Ring A 26% / Ring B 36% / Ring C 20% / crown 10%. T1: star 22% + Ring A only. T3: star 7% / A 23% / B 30% / C 16% / crown 12% / counter-rotating orbiter r 0.56 (−0.055 rad·s⁻¹).
+- **Kepler-like hierarchy**: star 0.16 / A 0.10 / B 0.07 / C 0.045 / crown 0.03 rad·s⁻¹, all CCW. Claudio **rests tighter than Jin** (bounded bob ±0.018, no ascent); disturbance and recovery are clean and circular (measured: 0.026 → 0.109 during, recovered ≈ 0.023 at 1440×900).
+- **Analytic fallback** reproduces Claudio's nested orbits (`?nofloat` verified in-canvas); switching/reset intact; instrumentation reports the active formation.
+- **Measured** (same session, GPU medians): 1440×900 Claudio T2 ≈ 0.416 ms (Jin band), 768 ≈ 0.306, 390 ≈ 0.149; 128 KB allocation, 4 draws; Jin stayed within the ±10% median gate throughout.
+
+**Still pending:** Dragunov Frost Curtain, Victor Precision Dial, Lars Bolt Filament (R2.5-2…R2.5-4); per-formation glyph law beyond the shared streak sprite; pulse envelopes; full Tier 1 identity audit for non-implemented formations; Tier 2 owner visual sign-off of Claudio.
+
+*R2.5-1 verification: tsc, isolated build, tier matrix, fallbacks, switching, context loss/restore, resize, reduced motion — all pass; Jin regression within gate; captures stored under `artifacts/motion-lab/verification/` (local only, gitignored).*

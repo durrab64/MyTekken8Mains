@@ -238,6 +238,66 @@
       };
     };
 
+    // Full Jin <-> Claudio switch lifecycle: repeated switching both ways,
+    // switch-while-paused, reset and tier round-trip with Claudio active.
+    window.switchTest = async (width, height) => {
+      const frame = await window.loadFrame(width, height);
+      const win = frame.contentWindow;
+      const lab = await window.waitFor(() => win.__motionLab ?? null, 8000);
+      if (!lab) return { error: 'lab hooks missing' };
+      const ready = await window.waitForEngine(lab);
+      if (!ready) return { error: 'engine did not come up', state: lab.getState() };
+      const out = { transitions: [] };
+      const record = (label) => {
+        const s = lab.getStats();
+        out.transitions.push({ label, formation: s?.formation, tier: s?.tier, draws: s?.drawsPerFrame, runtimeError: s?.runtimeError ?? null });
+      };
+      await sleep(1200);
+      record('initial');
+      for (const id of ['claudio', 'jin', 'claudio', 'jin', 'claudio']) {
+        const ok = lab.setFormation(id);
+        await sleep(200);
+        const s = lab.getStats();
+        out.transitions.push({ label: `set ${id}`, ok, formation: s?.formation, draws: s?.drawsPerFrame, runtimeError: s?.runtimeError ?? null, state: lab.getState().formation });
+      }
+      // Switch while paused.
+      lab.setPaused(true);
+      await sleep(300);
+      const okPaused = lab.setFormation('jin');
+      await sleep(200);
+      const pausedState = lab.getStats();
+      out.pausedSwitch = { okPaused, pausedDraws: pausedState?.drawsPerFrame, formation: pausedState?.formation };
+      const okPausedBack = lab.setFormation('claudio');
+      await sleep(200);
+      out.pausedBack = { okPausedBack, pausedDraws: lab.getStats()?.drawsPerFrame, formation: lab.getStats()?.formation };
+      lab.setPaused(false);
+      await sleep(400);
+      // Reset with Claudio active.
+      const resetOk = lab.reset();
+      await sleep(150);
+      out.resetWhileClaudio = { resetOk, formation: lab.getState().formation, state: lab.getParticleState() };
+      // Tier round-trip with Claudio active.
+      lab.setTier(1);
+      await sleep(600);
+      const t1 = lab.getStats();
+      lab.setTier(3);
+      await sleep(600);
+      const t3 = lab.getStats();
+      lab.setTier(2);
+      await sleep(600);
+      const t2 = lab.getStats();
+      out.tiers = {
+        t1: { particles: t1?.particleCount, formation: t1?.formation, draws: t1?.drawsPerFrame },
+        t3: { particles: t3?.particleCount, formation: t3?.formation, draws: t3?.drawsPerFrame },
+        t2: { particles: t2?.particleCount, formation: t2?.formation, draws: t2?.drawsPerFrame },
+      };
+      // Switch back to Jin, then context loss/restore with Jin active, then Claudio again.
+      out.backToJin = lab.setFormation('jin');
+      await sleep(400);
+      out.glError = lab.checkGlError();
+      return out;
+    };
+
     window.contextTest = async (width, height) => {
       const frame = await window.loadFrame(width, height);
       const lab = frame.contentWindow.__motionLab;

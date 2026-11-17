@@ -21,7 +21,7 @@ export interface FormationPalette {
 export type FormationGlyph = 'streak' | 'chip' | 'diamond' | 'glint';
 
 export interface FormationAtmosphere {
-  /** 0 = Jin ember column (the only active mode); 1–4 reserved, not implemented. */
+  /** 0 = Jin ember column (the only active mode); 1â€“4 reserved, not implemented. */
   mode: number;
   /** Key-light anchor in atmosphere p-space. Reserved; Jin mode ignores it. */
   anchor: readonly [number, number];
@@ -53,6 +53,10 @@ export interface FormationDefinition {
   curlScale: number;
   /** Depth-layout descriptor for the future shared renderer. Informational in this stage. */
   depth: 'helix' | 'rings' | 'sheets' | 'dial' | 'trunk';
+  /** Baseline tangent stretch for sprites; Jin keeps its committed law. */
+  stretchBase: number;
+  /** Speed-response coefficient on the tangent stretch law. */
+  stretchSpeed: number;
   atmosphere: FormationAtmosphere;
   palette: FormationPalette;
 }
@@ -68,6 +72,8 @@ export const FORMATIONS: Record<FormationId, FormationDefinition> = {
     radius: 0.34,
     spring: 2.6,
     curlScale: 1,
+    stretchBase: 1.18,
+    stretchSpeed: 0.5,
     depth: 'helix',
     atmosphere: { mode: 0, anchor: [0, -0.7], band: 1, pulsePeriod: 0 },
     palette: {
@@ -79,17 +85,21 @@ export const FORMATIONS: Record<FormationId, FormationDefinition> = {
       tintB: [1, 0.72, 0.3],
     },
   },
-  // Reserved — schema only. No geometry, shading or atmosphere is implemented.
+  // Claudio is implemented (R2.5-1). The remaining ids are reserved schema
+  // entries (`implemented: false`) with planned palettes â€” they have no
+  // geometry, shading, atmosphere or fallback and are not selectable.
   claudio: {
     id: 'claudio',
     character: 'Claudio Serafino',
     name: 'Radiant Orbit',
-    title: 'Planned formation — not implemented',
-    implemented: false,
+    title: 'The approved nested-orbit formation',
+    implemented: true,
     glyph: 'glint',
     radius: 0.63,
     spring: 2.6,
     curlScale: 1,
+    stretchBase: 1.32,
+    stretchSpeed: 0.9,
     depth: 'rings',
     atmosphere: { mode: 1, anchor: [0, 0], band: 1, pulsePeriod: 0 },
     palette: {
@@ -105,12 +115,14 @@ export const FORMATIONS: Record<FormationId, FormationDefinition> = {
     id: 'dragunov',
     character: 'Sergei Dragunov',
     name: 'Frost Curtain',
-    title: 'Planned formation — not implemented',
+    title: 'Planned formation â€” not implemented',
     implemented: false,
     glyph: 'chip',
     radius: 1.25,
     spring: 2.4,
     curlScale: 1,
+    stretchBase: 1.0,
+    stretchSpeed: 0.35,
     depth: 'sheets',
     atmosphere: { mode: 2, anchor: [0, -0.7], band: 1, pulsePeriod: 0 },
     palette: {
@@ -126,12 +138,14 @@ export const FORMATIONS: Record<FormationId, FormationDefinition> = {
     id: 'victor',
     character: 'Victor Chevalier',
     name: 'Precision Dial',
-    title: 'Planned formation — not implemented',
+    title: 'Planned formation â€” not implemented',
     implemented: false,
     glyph: 'diamond',
     radius: 0.5,
     spring: 3.2,
     curlScale: 0.4,
+    stretchBase: 1.0,
+    stretchSpeed: 0.35,
     depth: 'dial',
     atmosphere: { mode: 3, anchor: [-0.55, 0.6], band: 1, pulsePeriod: 0 },
     palette: {
@@ -147,12 +161,14 @@ export const FORMATIONS: Record<FormationId, FormationDefinition> = {
     id: 'lars',
     character: 'Lars Alexandersson',
     name: 'Bolt Filament',
-    title: 'Planned formation — not implemented',
+    title: 'Planned formation â€” not implemented',
     implemented: false,
     glyph: 'streak',
     radius: 1.2,
     spring: 3.0,
     curlScale: 0.7,
+    stretchBase: 1.0,
+    stretchSpeed: 0.35,
     depth: 'trunk',
     atmosphere: { mode: 4, anchor: [0, 0], band: 1, pulsePeriod: 2.2 },
     palette: {
@@ -250,13 +266,11 @@ export function formationLambda(base: number): number {
   return base + 0.05 * Math.sin(Math.PI * 2 * base);
 }
 
-/**
- * JS mirror of labJinHome. Used only to seed the GPGPU textures and to build
- * the harness readback; the shader re-derives the target every frame.
- * Adjacent filaments share a ribbon, so Tier2 reads as a double helix,
- * Tier3 as a triple, Tier1 as one ribbon. The profile is wide through the
- * lower-middle, tightens above centre and tapers at the crown; 12 % of
- * embers peel outward along the tangent.
+/** JS mirror of jinHome. Used only to seed the GPGPU textures; the shader
+ * re-derives the target every frame. Adjacent filaments share a ribbon, so
+ * Tier2 reads as a double helix, Tier3 as a triple, Tier1 as one ribbon. The
+ * profile is wide through the lower-middle, tightens above centre and tapers
+ * at the crown; 12 % of embers peel outward along the tangent.
  */
 function jinHome(
   lambda: number,
@@ -303,10 +317,122 @@ function jinHome(
   return [x, y, z];
 }
 
+/** R2.5-1 Claudio detail level: 0 = Tier 1 lite, 1 = Tier 2 canonical, 2 = Tier 3 high. */
+export type FormationDetail = 0 | 1 | 2;
+
+/** Claudio component partition; mirrors claudioComponent() in the shaders. */
+export function claudioComponent(seed: number, detail: FormationDetail): number {
+  if (detail === 0) {
+    return seed < 0.22 ? 0 : 1;
+  }
+  if (detail === 2) {
+    if (seed < 0.07) return 0;
+    if (seed < 0.3) return 1;
+    if (seed < 0.6) return 2;
+    if (seed < 0.76) return 3;
+    if (seed < 0.88) return 4;
+    return 5;
+  }
+  if (seed < 0.08) return 0;
+  if (seed < 0.34) return 1;
+  if (seed < 0.7) return 2;
+  if (seed < 0.9) return 3;
+  return 4;
+}
+
+const CLAUDIO_COS_INC_A = 0.9271839; // cos(+22Â°)
+const CLAUDIO_SIN_INC_A = 0.3746066; // sin(+22Â°)
+const CLAUDIO_COS_INC_C = 0.9271839; // cos(-22Â°)
+const CLAUDIO_SIN_INC_C = -0.3746066; // sin(-22Â°)
+const CLAUDIO_COS_ORBIT = 0.9975641; // cos(4Â°)
+const CLAUDIO_SIN_ORBIT = 0.0697565; // sin(4Â°)
+const CLAUDIO_COS_AZ = 0.4694716; // cos(62Â°)
+const CLAUDIO_SIN_AZ = 0.8829476; // sin(62Â°)
+const CLAUDIO_ZOFF = -0.05;
+
 /**
- * Formation-aware home evaluation. Only `jin` is implemented; any other id
- * throws rather than fabricates geometry. Used by the engine's readback
- * mirror and seeding path — the shader path goes through FORMATION_GLSL.
+ * JS mirror of claudioHome. Nested inclined orbital planes, a restrained
+ * vertical crown halo, and a luminous focal star â€” the star is a treatment
+ * derived from existing particles inside the same budget, not new particles.
+ */
+function claudioHome(
+  lambda: number,
+  seed: number,
+  time: number,
+  detail: FormationDetail,
+): [number, number, number] {
+  const tau = Math.PI * 2;
+  const comp = claudioComponent(seed, detail);
+  const rJitter = (hash11(seed * 29.7 + 4.1) - 0.5) * 0.055;
+  const aJitter = (hash11(seed * 17.3 + 9.7) - 0.5) * 0.045;
+  const zJitter = (hash11(seed * 23.9 + 1.3) - 0.5) * 0.02;
+  // Gentle vertical breathing (bounded) instead of unbounded drift.
+  const bob = 0.018 * Math.sin(time * 0.8 + seed * 6.0);
+
+  if (comp === 0) {
+    const g =
+      hash11(seed * 29.1 + 2.4) +
+      hash11(seed * 41.7 + 3.1) +
+      hash11(seed * 53.3 + 5.9) -
+      1.5;
+    const r = Math.max(0.018, 0.058 + g * 0.022);
+    const theta = 0.16 * time + (lambda - 0.5) * 0.9 + aJitter;
+    return [
+      Math.cos(theta) * r * (1 + rJitter),
+      Math.sin(theta) * r * 0.9 + bob,
+      g * 0.02,
+    ];
+  }
+
+  if (comp === 4) {
+    const radius = 0.46 * (1 + rJitter);
+    const theta = tau * lambda + 0.9 + 0.03 * time + aJitter;
+    const x = Math.cos(theta) * radius * CLAUDIO_COS_AZ;
+    const z = -Math.cos(theta) * radius * CLAUDIO_SIN_AZ + CLAUDIO_ZOFF + zJitter;
+    return [x, Math.sin(theta) * radius + bob, z];
+  }
+
+  let radius = 0.42;
+  let sy = 1;
+  let sz = 0;
+  let phase = 2.1;
+  let rate = 0.07;
+  if (comp === 1) {
+    radius = 0.22;
+    sy = CLAUDIO_COS_INC_A;
+    sz = CLAUDIO_SIN_INC_A;
+    phase = 0;
+    rate = 0.1;
+  } else if (comp === 3) {
+    radius = 0.68;
+    sy = CLAUDIO_COS_INC_C;
+    sz = CLAUDIO_SIN_INC_C;
+    phase = 4.2;
+    rate = 0.045;
+  } else if (comp === 5) {
+    radius = 0.56;
+    sy = CLAUDIO_COS_ORBIT;
+    sz = CLAUDIO_SIN_ORBIT;
+    phase = 3.0;
+    rate = -0.055; // counter-rotating faint orbiter (Tier 3)
+  }
+
+  const r = radius * (1 + rJitter);
+  const theta = tau * lambda + phase + rate * time + aJitter;
+  return [
+    Math.cos(theta) * r,
+    Math.sin(theta) * r * sy + bob,
+    Math.sin(theta) * r * sz + zJitter,
+  ];
+}
+
+/**
+ * Formation-aware home evaluation. `jin` and `claudio` are implemented; any
+ * other id throws rather than fabricates geometry. Used by the engine's
+ * readback mirror and seeding path â€” the shader path goes through
+ * FORMATION_GLSL. `detail` selects the tier-aware component partition for
+ * Claudio (0 = Tier 1 lite, 1 = Tier 2 canonical, 2 = Tier 3 high); Jin
+ * ignores it.
  */
 export function formationHome(
   formationId: FormationId,
@@ -316,11 +442,15 @@ export function formationHome(
   time: number,
   radius?: number,
   filaments: number = 6,
+  detail: FormationDetail = 1,
 ): [number, number, number] {
-  if (formationId !== 'jin') {
-    throw new Error(`Formation "${formationId}" has no home function.`);
+  if (formationId === 'jin') {
+    return jinHome(lambda, seed, filament, time, radius, filaments);
   }
-  return jinHome(lambda, seed, filament, time, radius, filaments);
+  if (formationId === 'claudio') {
+    return claudioHome(lambda, seed, time, detail);
+  }
+  throw new Error(`Formation "${formationId}" has no home function.`);
 }
 
 export interface InitialParticleState {
@@ -330,8 +460,10 @@ export interface InitialParticleState {
 
 /**
  * One texel = one particle. RGB is position/velocity, position.w is the stable
- * seed, velocity.w is the formation coordinate lambda. Only `jin` is seeded;
- * requesting an unimplemented id throws before any GPU state is written.
+ * seed, velocity.w is the formation coordinate lambda. Only implemented ids
+ * may be seeded; anything else throws before any GPU state is written. Jin
+ * seeds interleaved filaments; Claudio seeds serially (ring lambda is the
+ * arc itself, so the distribution is uniform by construction).
  */
 export function buildInitialState(
   size: number,
@@ -339,8 +471,9 @@ export function buildInitialState(
   filaments: number,
   time: number,
   formationId: FormationId = 'jin',
+  detail: FormationDetail = 1,
 ): InitialParticleState {
-  if (formationId !== 'jin') {
+  if (FORMATIONS[formationId]?.implemented !== true) {
     throw new Error(
       `Cannot seed formation "${formationId}": it is not implemented in this build.`,
     );
@@ -348,19 +481,20 @@ export function buildInitialState(
   const texels = size * size;
   const positions = new Float32Array(texels * 4);
   const velocities = new Float32Array(texels * 4);
-  const rows = Math.max(1, Math.ceil(count / filaments));
+  const streams = formationId === 'jin' ? filaments : 1;
+  const rows = Math.max(1, Math.ceil(count / streams));
 
   for (let index = 0; index < texels; index += 1) {
     const active = index < count;
     // Odd filaments advance half a row so paired strands interleave along the
     // ribbon instead of sitting side-by-side in visible steps.
-    const stagger = (index % filaments) % 2 === 0 ? 0 : 0.5;
+    const stagger = (index % streams) % 2 === 0 ? 0 : 0.5;
     const base = active
-      ? (Math.floor(index / filaments) + 0.5 + stagger) / rows
+      ? (Math.floor(index / streams) + 0.5 + stagger) / rows
       : hash11(index * 3.71 + 1.23);
     const lambda = formationLambda(base);
     const seed = hash11(index * 1.37 + 4.11);
-    const filament = index % filaments;
+    const filament = index % streams;
     const home = formationHome(
       formationId,
       lambda,
@@ -369,6 +503,7 @@ export function buildInitialState(
       time,
       FORMATIONS[formationId].radius,
       filaments,
+      detail,
     );
 
     positions[index * 4] = home[0];
