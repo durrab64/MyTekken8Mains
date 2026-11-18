@@ -50,8 +50,9 @@ float labFbmOctaves(vec2 p, int octaves) {
 `;
 
 /**
- * R2.5-1 formation interface: Jin (LAB_FORMATION_JIN) and Claudio
- * (LAB_FORMATION_CLAUDIO) are implemented; every other id is rejected by the
+ * R2.5 formation interface: Jin (LAB_FORMATION_JIN), Claudio
+ * (LAB_FORMATION_CLAUDIO), Dragunov (LAB_FORMATION_DRAGUNOV) and Victor
+ * (LAB_FORMATION_VICTOR) are implemented; Lars is rejected by the
  * registry/UI/engine before it reaches the GPU. The sentinel branch parks
  * unsupported ids at the clamp ceiling with zeroed alpha instead of
  * fabricating geometry. Declares its own shared uniforms so every program
@@ -61,6 +62,7 @@ const LAB_FORMATION_GLSL = `
 const int LAB_FORMATION_JIN = 0;
 const int LAB_FORMATION_CLAUDIO = 1;
 const int LAB_FORMATION_DRAGUNOV = 2;
+const int LAB_FORMATION_VICTOR = 3;
 uniform int uFormation;
 uniform int uFormationDetail;   // 0 = T1 lite, 1 = T2 canonical, 2 = T3 high
 uniform float uFormationRadius;
@@ -295,6 +297,136 @@ vec3 dragunovHome(float lambda, float seed, float t) {
 }
 
 /**
+ * Victor component partition. 0 outer ring, 1 inner ring, 2 spokes, 3 hex
+ * vertices, 4 orbiter bands, 5 iris, 6 T3 shimmer ring. Mirrors
+ * victorComponent() in formations.ts.
+ */
+float victorComponent(float seed) {
+  if (uFormationDetail == 0) {
+    if (seed < 0.475) return 0.0;
+    if (seed < 0.95) return 1.0;
+    return 5.0;
+  }
+  if (uFormationDetail == 2) {
+    if (seed < 0.26) return 0.0;
+    if (seed < 0.52) return 1.0;
+    if (seed < 0.74) return 2.0;
+    if (seed < 0.85) return 3.0;
+    if (seed < 0.91) return 4.0;
+    if (seed < 0.97) return 6.0;
+    return 5.0;
+  }
+  if (seed < 0.28) return 0.0;
+  if (seed < 0.56) return 1.0;
+  if (seed < 0.80) return 2.0;
+  if (seed < 0.92) return 3.0;
+  if (seed < 0.97) return 4.0;
+  return 5.0;
+}
+
+/** Diamonds stay crisp: rim/spokes regular, orbiters faint, iris brightest. */
+float victorSizeScale(float seed) {
+  float comp = victorComponent(seed);
+  if (comp < 0.5) return 1.06;
+  if (comp < 1.5) return 0.98;
+  if (comp < 2.5) return 1.02;
+  if (comp < 3.5) return 1.08;
+  if (comp < 4.5) return 0.86;
+  if (comp < 5.5) return 1.12;
+  return 0.72;
+}
+
+const float VICTOR_STEP_INTERVAL = 1.1;
+const float VICTOR_STEP_RAD = 0.5235987756;   // 30°
+const float VICTOR_STEP_RATE = 0.4759998;     // 30° per 1.1 s
+const float VICTOR_ORBIT_RATE = 0.2617993878; // half a revolution per 12 s
+
+/** Quantised 30° clunk: cubic ease-out inside each 1.1 s interval. */
+float victorDialPhase(float t) {
+  float raw = t / VICTOR_STEP_INTERVAL;
+  float segment = floor(raw);
+  float frac = raw - segment;
+  float inv = 1.0 - frac;
+  float ease = 1.0 - inv * inv * inv;
+  return mod(segment, 12.0) * VICTOR_STEP_RAD + ease * VICTOR_STEP_RAD;
+}
+
+/** Rim-only flare at the start of each step; inner ring holds steady. */
+float victorClunkEnvelope(float t) {
+  float frac = fract(t / VICTOR_STEP_INTERVAL);
+  return pow(1.0 - frac, 7.0);
+}
+
+/**
+ * Precision Dial: a counter-rotating mechanical dial. Violet outer rim raised
+ * in z, recessed cyan inner ring, six rigid spokes, a hex perimeter, two
+ * free-running orbiter bands, and a tiny breathing iris. The outer phase steps
+ * in 30° clunks; the inner ring counter-rotates continuously; orbiters are the
+ * only smooth, opposed motion. Restrained, 6-fold, precise.
+ */
+vec3 victorHome(float lambda, float seed, float t) {
+  float comp = victorComponent(seed);
+  float phase = victorDialPhase(t);
+  float rJitter = (labHash11(seed * 27.1 + 4.7) - 0.5) * 0.012;
+  float aJitter = (labHash11(seed * 19.3 + 8.1) - 0.5) * 0.03;
+
+  if (comp < 0.5) {
+    float radius = 0.5 * (1.0 + rJitter);
+    float theta = LAB_TAU * lambda + phase + aJitter;
+    return vec3(cos(theta) * radius, sin(theta) * radius, 0.18);
+  }
+
+  if (comp < 1.5) {
+    float radius = 0.24 * (1.0 + rJitter);
+    float theta = LAB_TAU * lambda - 0.5 * VICTOR_STEP_RATE * t + 0.6 + aJitter;
+    return vec3(cos(theta) * radius, sin(theta) * radius, -0.15);
+  }
+
+  if (comp < 2.5) {
+    float spoke = floor(labHash11(seed * 31.7 + 6.3) * 6.0);
+    float theta = spoke * (LAB_TAU / 6.0) + phase + aJitter * 0.12;
+    float radius = mix(0.24, 0.5, lambda) + rJitter;
+    return vec3(cos(theta) * radius, sin(theta) * radius, 0.0);
+  }
+
+  if (comp < 3.5) {
+    // Hexagon rim, not six dots: distribute along the six chord edges between
+    // the 60° lattice vertices (still rigid with the outer phase).
+    float edge = floor(lambda * 6.0);
+    float t = fract(lambda * 6.0);
+    float a0 = edge * (LAB_TAU / 6.0) + phase;
+    float a1 = (edge + 1.0) * (LAB_TAU / 6.0) + phase;
+    vec2 v0 = vec2(cos(a0), sin(a0)) * 0.13;
+    vec2 v1 = vec2(cos(a1), sin(a1)) * 0.13;
+    vec2 p = mix(v0, v1, t);
+    p += normalize(p) * rJitter * 0.20;
+    return vec3(p, 0.03);
+  }
+
+  if (comp < 4.5) {
+    float band = labHash11(seed * 37.3 + 9.2);
+    float outerBand = band < 0.5 ? 1.0 : 0.0;
+    float radius = mix(0.56, 0.37, outerBand) * (1.0 + rJitter);
+    float theta = LAB_TAU * lambda
+                + mix(-1.0, 1.0, outerBand) * VICTOR_ORBIT_RATE * t
+                + aJitter;
+    return vec3(cos(theta) * radius, sin(theta) * radius,
+                mix(-0.05, 0.05, outerBand));
+  }
+
+  if (comp > 5.5) {
+    float radius = 0.44 * (1.0 + rJitter);
+    float theta = LAB_TAU * lambda - phase + aJitter;
+    return vec3(cos(theta) * radius, sin(theta) * radius, 0.0);
+  }
+
+  // Iris — tight gaussian core; the sprite pass breathes its light.
+  float gx = labHash11(seed * 29.1 + 2.4) + labHash11(seed * 41.7 + 3.1) - 1.0;
+  float gy = labHash11(seed * 53.3 + 5.9) + labHash11(seed * 61.3 + 7.7) - 1.0;
+  return vec3(gx * 0.018, gy * 0.018, 0.06);
+}
+
+/**
  * Formation dispatcher. Unknown ids park particles at the clamp ceiling;
  * sprites are alpha-discarded via formationVisibility(). Never fabricates
  * geometry for an unimplemented formation.
@@ -309,13 +441,16 @@ vec3 formationHome(float lambda, float seed, float filament, float t) {
   if (uFormation == LAB_FORMATION_DRAGUNOV) {
     return dragunovHome(lambda, seed, t);
   }
+  if (uFormation == LAB_FORMATION_VICTOR) {
+    return victorHome(lambda, seed, t);
+  }
   return vec3(0.0, 1.45, 0.0);
 }
 
 /** 1.0 when the active formation is implemented. */
 float formationVisibility() {
   return (uFormation == LAB_FORMATION_JIN || uFormation == LAB_FORMATION_CLAUDIO
-       || uFormation == LAB_FORMATION_DRAGUNOV)
+       || uFormation == LAB_FORMATION_DRAGUNOV || uFormation == LAB_FORMATION_VICTOR)
     ? 1.0
     : 0.0;
 }
@@ -343,8 +478,9 @@ uniform float uAspect;
 uniform vec3 uDeep;
 uniform vec3 uFog;
 uniform vec3 uGlow;
-// R2.5-0 interface only. Jin mode (0) is the only implemented mode; modes
-// 1â€“4 are reserved and intentionally render the neutral backplate.
+// R2.5 formation atmosphere interface. Jin (0), Claudio (1), Dragunov (2) and
+// Victor (3) are implemented; mode 4 (Lars) is reserved and intentionally
+// renders the neutral backplate.
 uniform int uAtmosMode;
 uniform vec2 uAtmosAnchor;
 uniform float uAtmosBand;
@@ -389,6 +525,20 @@ void main() {
     float core = exp(-dot(p - vec2(0.0, -0.55), p - vec2(0.0, -0.55)) * 3.2) * 0.12;
     color = mix(uDeep * 0.30, uFog * 0.15, smoothstep(0.05, 0.95, vUv.y));
     color += uGlow * (slit + core + streaks);
+  } else if (uAtmosMode == 3) {
+    // Victor — Precision Dial: deep plum module lit by one hard upper-left
+    // lamp, faint horizontal datum lines, chromatic fringe at the lamp edge.
+    vec2 lamp = p - vec2(-0.55, 0.60);
+    float lampCore = exp(-dot(lamp, lamp) * 12.0) * 0.34;
+    float lampHalo = exp(-dot(lamp, lamp) * 3.2) * 0.10;
+    float lr = length(lamp);
+    float fringe = smoothstep(0.24, 0.30, lr) * (1.0 - smoothstep(0.30, 0.40, lr)) * 0.020;
+    float datum = pow(0.5 + 0.5 * sin(p.y * 52.0), 22.0) * 0.022;
+    datum *= 1.0 - smoothstep(0.60, 1.00, abs(p.x));
+    color = mix(uDeep * 0.42, uFog * 0.16, smoothstep(0.05, 0.95, vUv.y));
+    color += uGlow * (lampCore + lampHalo);
+    color += vec3(0.55, 0.12, 0.45) * fringe;
+    color += vec3(0.36, 0.30, 0.52) * datum;
   } else {
     // Neutral backplate only. Reserved modes must not exist yet.
   }
@@ -452,6 +602,19 @@ void main() {
   float filament = mod(float(index), uFilaments);
   vec3 home = formationHome(lambda, seed, filament, uTime);
 
+  // Victor packs two stiffness classes into the existing seed byte range:
+  // the lattice snaps back hard (3.2 / 2.6 of the panel spring), orbiters
+  // ride softer (2.2 / 2.6) with normal curl. All other formations multiply
+  // by exactly 1.0.
+  float springMul = 1.0;
+  float curlMul = 1.0;
+  if (uFormation == LAB_FORMATION_VICTOR) {
+    float victorComp = victorComponent(seed);
+    bool orbiter = victorComp > 3.5 && victorComp < 4.5;
+    springMul = orbiter ? 0.8461538 : 1.2307692;
+    curlMul = orbiter ? 2.5 : 1.0;
+  }
+
   vec3 pos = P.xyz;
   vec3 vel = V.xyz;
 
@@ -464,9 +627,9 @@ void main() {
   vec2 pointerForce = (dir * uPointerStrength + tangent * uPointerSwirl) * fall;
   pointerForce += uPointerVelocity * fall * 0.45;
 
-  vec2 curl = labCurl(pos.xy * 0.62, uTime, uOctaves) * uCurl * 0.115 * uCurlScale;
+  vec2 curl = labCurl(pos.xy * 0.62, uTime, uOctaves) * uCurl * 0.115 * uCurlScale * curlMul;
   vec2 wind = vec2(0.0, 0.03);
-  vec3 springForce = (home - pos) * uSpring;
+  vec3 springForce = (home - pos) * uSpring * springMul;
   vec3 force = springForce + vec3((pointerForce + curl + wind) * uAmplitude, 0.0);
 
   vel += force * uDt;
@@ -512,18 +675,27 @@ in vec2 vQuad;
 in vec3 vColor;
 in float vAlpha;
 in float vHard;
+in float vGlyph;
 
 out vec4 outColor;
 
 void main() {
   float r2 = dot(vQuad, vQuad);
-  if (r2 > 1.0) {
+  if (vGlyph > 0.5) {
+    // Rotated-square (diamond) contour for Victor's lattice glyphs.
+    float d = abs(vQuad.x) + abs(vQuad.y);
+    if (d > 1.0) {
+      discard;
+    }
+    r2 = d * d;
+  } else if (r2 > 1.0) {
     discard;
   }
 
-  float soft = exp(-r2 * 3.6);
-  float core = exp(-r2 * 17.0);
-  vec3 color = vColor + vec3(1.0, 0.91, 0.76) * core * (0.35 + 1.05 * vHard);
+  float soft = exp(-r2 * (vGlyph > 0.5 ? 2.6 : 3.6));
+  float core = exp(-r2 * (vGlyph > 0.5 ? 12.0 : 17.0));
+  vec3 coreTint = vGlyph > 0.5 ? vec3(0.68, 0.94, 1.0) : vec3(1.0, 0.91, 0.76);
+  vec3 color = vColor + coreTint * core * (0.35 + 1.05 * vHard);
 
   float luminance = dot(color, vec3(0.299, 0.587, 0.114));
   float brightnessClip = 1.0 - smoothstep(0.78, 1.0, luminance) * 0.55;
@@ -556,6 +728,7 @@ out vec2 vQuad;
 out vec3 vColor;
 out float vAlpha;
 out float vHard;
+out float vGlyph;
 
 ${NOISE_GLSL}
 ${LAB_FORMATION_GLSL}
@@ -588,7 +761,7 @@ void main() {
     else if (comp < 3.5) { gain = 1.1; compAlpha = 1.4; }
     else if (comp < 4.5) { gain = 0.85; compAlpha = 1.0; }
     else { gain = 0.95; compAlpha = 1.4; }
-  } else {
+  } else if (uFormation == LAB_FORMATION_DRAGUNOV) {
     comp = uFormationDetail == 0 ? 1.0 : dragunovSheetOf(seed);
     spark = step(0.94, labHash11(seed * 91.7 + 3.1));
     if (comp < 0.5) { gain = 1.10; compAlpha = 0.95; }
@@ -603,6 +776,29 @@ void main() {
     float dissolve = 1.0 - smoothstep(0.82, 1.0, dU);
     compAlpha *= spawnFade * dissolve;
     gain *= 0.82 + 0.35 * dissolve;
+  } else {
+    // Victor — mechanical lattice. The outer rim flares on each clunk; the
+    // inner ring stays dim so the luminance ladder reads rim-over-core at
+    // rest and flares further at the step. The iris breathes slowly.
+    comp = victorComponent(seed);
+    spark = (comp > 4.5 && comp < 5.5) ? 1.0 : 0.0;
+    if (comp < 0.5) { gain = 1.28; compAlpha = 1.32; }
+    else if (comp < 1.5) { gain = 0.96; compAlpha = 1.12; }
+    else if (comp < 2.5) { gain = 1.05; compAlpha = 1.10; }
+    else if (comp < 3.5) { gain = 1.22; compAlpha = 1.24; }
+    else if (comp < 4.5) { gain = 0.92; compAlpha = 0.98; }
+    else if (comp < 5.5) { gain = 2.10; compAlpha = 2.25; }
+    else { gain = 0.58; compAlpha = 0.62; }
+    if (comp < 0.5) {
+      float clunk = victorClunkEnvelope(uTime);
+      gain *= 1.0 + 0.55 * clunk;
+      compAlpha *= 1.0 + 0.35 * clunk;
+    }
+    if (comp > 4.5 && comp < 5.5) {
+      float breath = 0.5 + 0.5 * sin(uTime * 0.9 + seed * 17.0);
+      gain *= 0.85 + 0.35 * breath;
+      compAlpha *= 0.90 + 0.20 * breath;
+    }
   }
   float depth = clamp(pos.z * 2.1 + 0.5, 0.0, 1.0);
 
@@ -634,7 +830,11 @@ void main() {
   float stretch = uStretchBase + min(speed, 2.5) * uStretchSpeed + spark * 0.55;
   float sizeScale = uFormation == LAB_FORMATION_JIN
     ? 1.0
-    : (uFormation == LAB_FORMATION_CLAUDIO ? claudioSizeScale(seed) : dragunovSizeScale(seed));
+    : (uFormation == LAB_FORMATION_CLAUDIO
+        ? claudioSizeScale(seed)
+        : (uFormation == LAB_FORMATION_DRAGUNOV
+            ? dragunovSizeScale(seed)
+            : victorSizeScale(seed)));
   float basePx = mix(1.7, 4.0, labHash11(seed * 91.7 + 3.1)) * uSize * uDpr
                * (0.82 + 0.46 * depth) * (1.0 - spark * 0.18) * sizeScale;
 
@@ -644,6 +844,7 @@ void main() {
   gl_Position = vec4(clip + offset, 0.0, 1.0);
 
   vQuad = aCorner;
+  vGlyph = uFormation == LAB_FORMATION_VICTOR ? 1.0 : 0.0;
   vec3 color;
   if (uFormation == LAB_FORMATION_JIN) {
     float heat = clamp(0.35 + lambda * 0.45 + labHash11(seed * 37.0) * 0.2, 0.0, 1.0);
@@ -655,12 +856,21 @@ void main() {
     else if (comp < 3.5) color = mix(uTintA, uTintB, 0.65);
     else if (comp < 4.5) color = mix(uTintB, uFog, 0.30);
     else color = mix(uTintA, uTintB, 0.25);
-  } else {
+  } else if (uFormation == LAB_FORMATION_DRAGUNOV) {
     // Dragunov — fog-drenched far sheet, steel mid, frost-tipped near.
     if (spark > 0.5) color = mix(uTintB, vec3(1.0), 0.30);
     else if (comp < 0.5) color = mix(uTintA, uFog, 0.55);
     else if (comp < 1.5) color = uTintA;
     else color = mix(uTintA, uTintB, 0.32);
+  } else {
+    // Victor — violet rim against a cyan core; spokes split the two.
+    if (comp < 0.5) color = uTintA;
+    else if (comp < 1.5) color = uTintB;
+    else if (comp < 2.5) color = mix(uTintA, uTintB, 0.55);
+    else if (comp < 3.5) color = mix(uTintB, vec3(1.0), 0.15);
+    else if (comp < 4.5) color = mix(uTintA, uTintB, 0.25);
+    else if (comp < 5.5) color = mix(uTintB, vec3(1.0), 0.55);
+    else color = mix(uTintA, uTintB, 0.40);
   }
   color = mix(color, uFog, (1.0 - depth) * 0.34);
   vColor = color * (0.90 + 0.52 * depth) * gain;
@@ -700,6 +910,7 @@ out vec2 vQuad;
 out vec3 vColor;
 out float vAlpha;
 out float vHard;
+out float vGlyph;
 
 ${NOISE_GLSL}
 ${LAB_FORMATION_GLSL}
@@ -746,7 +957,7 @@ void main() {
     else if (comp < 3.5) { gain = 1.1; compAlpha = 1.4; }
     else if (comp < 4.5) { gain = 0.85; compAlpha = 1.0; }
     else { gain = 0.95; compAlpha = 1.4; }
-  } else {
+  } else if (uFormation == LAB_FORMATION_DRAGUNOV) {
     comp = uFormationDetail == 0 ? 1.0 : dragunovSheetOf(seed);
     spark = step(0.94, labHash11(seed * 91.7 + 3.1));
     if (comp < 0.5) { gain = 1.10; compAlpha = 0.95; }
@@ -761,6 +972,29 @@ void main() {
     float dissolve = 1.0 - smoothstep(0.82, 1.0, dU);
     compAlpha *= spawnFade * dissolve;
     gain *= 0.82 + 0.35 * dissolve;
+  } else {
+    // Victor — mechanical lattice. The outer rim flares on each clunk; the
+    // inner ring stays dim so the luminance ladder reads rim-over-core at
+    // rest and flares further at the step. The iris breathes slowly.
+    comp = victorComponent(seed);
+    spark = (comp > 4.5 && comp < 5.5) ? 1.0 : 0.0;
+    if (comp < 0.5) { gain = 1.28; compAlpha = 1.32; }
+    else if (comp < 1.5) { gain = 0.96; compAlpha = 1.12; }
+    else if (comp < 2.5) { gain = 1.05; compAlpha = 1.10; }
+    else if (comp < 3.5) { gain = 1.22; compAlpha = 1.24; }
+    else if (comp < 4.5) { gain = 0.92; compAlpha = 0.98; }
+    else if (comp < 5.5) { gain = 2.10; compAlpha = 2.25; }
+    else { gain = 0.58; compAlpha = 0.62; }
+    if (comp < 0.5) {
+      float clunk = victorClunkEnvelope(uTime);
+      gain *= 1.0 + 0.55 * clunk;
+      compAlpha *= 1.0 + 0.35 * clunk;
+    }
+    if (comp > 4.5 && comp < 5.5) {
+      float breath = 0.5 + 0.5 * sin(uTime * 0.9 + seed * 17.0);
+      gain *= 0.85 + 0.35 * breath;
+      compAlpha *= 0.90 + 0.20 * breath;
+    }
   }
   float depth = clamp(pos.z * 2.1 + 0.5, 0.0, 1.0);
 
@@ -792,7 +1026,11 @@ void main() {
   float stretch = uStretchBase + min(speed, 2.5) * uStretchSpeed + spark * 0.55;
   float sizeScale = uFormation == LAB_FORMATION_JIN
     ? 1.0
-    : (uFormation == LAB_FORMATION_CLAUDIO ? claudioSizeScale(seed) : dragunovSizeScale(seed));
+    : (uFormation == LAB_FORMATION_CLAUDIO
+        ? claudioSizeScale(seed)
+        : (uFormation == LAB_FORMATION_DRAGUNOV
+            ? dragunovSizeScale(seed)
+            : victorSizeScale(seed)));
   float basePx = mix(1.7, 4.0, labHash11(seed * 91.7 + 3.1)) * uSize * uDpr
                * (0.82 + 0.46 * depth) * (1.0 - spark * 0.18) * sizeScale;
 
@@ -802,6 +1040,7 @@ void main() {
   gl_Position = vec4(clip + offset, 0.0, 1.0);
 
   vQuad = aCorner;
+  vGlyph = uFormation == LAB_FORMATION_VICTOR ? 1.0 : 0.0;
   vec3 color;
   if (uFormation == LAB_FORMATION_JIN) {
     float heat = clamp(0.35 + lambda * 0.45 + labHash11(seed * 37.0) * 0.2, 0.0, 1.0);
@@ -813,12 +1052,21 @@ void main() {
     else if (comp < 3.5) color = mix(uTintA, uTintB, 0.65);
     else if (comp < 4.5) color = mix(uTintB, uFog, 0.30);
     else color = mix(uTintA, uTintB, 0.25);
-  } else {
+  } else if (uFormation == LAB_FORMATION_DRAGUNOV) {
     // Dragunov — fog-drenched far sheet, steel mid, frost-tipped near.
     if (spark > 0.5) color = mix(uTintB, vec3(1.0), 0.30);
     else if (comp < 0.5) color = mix(uTintA, uFog, 0.55);
     else if (comp < 1.5) color = uTintA;
     else color = mix(uTintA, uTintB, 0.32);
+  } else {
+    // Victor — violet rim against a cyan core; spokes split the two.
+    if (comp < 0.5) color = uTintA;
+    else if (comp < 1.5) color = uTintB;
+    else if (comp < 2.5) color = mix(uTintA, uTintB, 0.55);
+    else if (comp < 3.5) color = mix(uTintB, vec3(1.0), 0.15);
+    else if (comp < 4.5) color = mix(uTintA, uTintB, 0.25);
+    else if (comp < 5.5) color = mix(uTintB, vec3(1.0), 0.55);
+    else color = mix(uTintA, uTintB, 0.40);
   }
   color = mix(color, uFog, (1.0 - depth) * 0.34);
   vColor = color * (0.90 + 0.52 * depth) * gain;

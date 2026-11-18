@@ -1,11 +1,11 @@
 /**
  * R2.5-0 formation data model for the isolated lab.
  *
- * Only `jin` is implemented and selectable. The remaining ids are reserved
- * schema entries (`implemented: false`) so the registry, the type system and
- * the selector can be built without fabricating their geometry. Every
- * shader-side branch for a non-Jin id resolves to a disabled sentinel, never
- * to invented geometry.
+ * Jin, Claudio, Dragunov and Victor are implemented and selectable. `lars` is
+ * a reserved schema entry (`implemented: false`) so the registry, the type
+ * system and the selector can cover the full five-character set. Every
+ * shader-side branch for an unimplemented id resolves to a disabled sentinel,
+ * never to invented geometry.
  */
 export type FormationId = 'jin' | 'claudio' | 'dragunov' | 'victor' | 'lars';
 
@@ -85,9 +85,9 @@ export const FORMATIONS: Record<FormationId, FormationDefinition> = {
       tintB: [1, 0.72, 0.3],
     },
   },
-  // Claudio is implemented (R2.5-1). The remaining ids are reserved schema
-  // entries (`implemented: false`) with planned palettes â€” they have no
-  // geometry, shading, atmosphere or fallback and are not selectable.
+  // Claudio, Dragunov and Victor are implemented (R2.5-1…R2.5-3). `lars` is a
+  // reserved schema entry (`implemented: false`) with a planned palette — it
+  // has no geometry, shading, atmosphere or fallback and is not selectable.
   claudio: {
     id: 'claudio',
     character: 'Claudio Serafino',
@@ -138,8 +138,8 @@ export const FORMATIONS: Record<FormationId, FormationDefinition> = {
     id: 'victor',
     character: 'Victor Chevalier',
     name: 'Precision Dial',
-    title: 'Planned formation â€” not implemented',
-    implemented: false,
+    title: 'The approved quantised dial formation',
+    implemented: true,
     glyph: 'diamond',
     radius: 0.5,
     spring: 3.2,
@@ -419,6 +419,144 @@ function dragunovHome(
   return [x, y, z];
 }
 
+const VICTOR_STEP_INTERVAL = 1.1;
+const VICTOR_STEP_RAD = Math.PI / 6;
+/** Average outer-step rate; the inner ring counter-rotates at half of it. */
+const VICTOR_STEP_RATE = VICTOR_STEP_RAD / VICTOR_STEP_INTERVAL;
+/** Half a revolution per 12 s for the free-running orbiter bands. */
+const VICTOR_ORBIT_RATE = (Math.PI * 2 * 0.5) / 12;
+
+/**
+ * Victor component partition. 0 outer ring, 1 inner ring, 2 spokes, 3 hex
+ * rim, 4 orbiter bands, 5 iris, 6 T3 shimmer ring. Matches
+ * victorComponent() in the shaders.
+ */
+export function victorComponent(seed: number, detail: FormationDetail): number {
+  if (detail === 0) {
+    if (seed < 0.475) return 0;
+    if (seed < 0.95) return 1;
+    return 5;
+  }
+  if (detail === 2) {
+    if (seed < 0.26) return 0;
+    if (seed < 0.52) return 1;
+    if (seed < 0.74) return 2;
+    if (seed < 0.85) return 3;
+    if (seed < 0.91) return 4;
+    if (seed < 0.97) return 6;
+    return 5;
+  }
+  if (seed < 0.28) return 0;
+  if (seed < 0.56) return 1;
+  if (seed < 0.8) return 2;
+  if (seed < 0.92) return 3;
+  if (seed < 0.97) return 4;
+  return 5;
+}
+
+/**
+ * Quantised dial phase: a 30° clunk every 1.1 s. Cubic ease-out inside each
+ * interval, wrapped to a full turn so the value stays precise over long runs.
+ * Mirrors victorDialPhase() in the shaders.
+ */
+export function victorDialPhase(time: number): number {
+  const raw = time / VICTOR_STEP_INTERVAL;
+  const segment = Math.floor(raw);
+  const frac = raw - segment;
+  const inv = 1 - frac;
+  const ease = 1 - inv * inv * inv;
+  return (segment % 12) * VICTOR_STEP_RAD + ease * VICTOR_STEP_RAD;
+}
+
+/** Mirrors victorClunkEnvelope() in the shaders (rim flare only). */
+export function victorClunkEnvelope(time: number): number {
+  const frac = time / VICTOR_STEP_INTERVAL - Math.floor(time / VICTOR_STEP_INTERVAL);
+  return Math.pow(1 - frac, 7);
+}
+
+/**
+ * JS mirror of victorHome. A precise counter-rotating dial: violet outer rim
+ * raised in z, cyan inner ring recessed, six spokes and a hex perimeter
+ * rigid with the outer clunk phase, two free-running orbiter bands, and a
+ * tiny breathing iris at the centre.
+ */
+function victorHome(
+  lambda: number,
+  seed: number,
+  time: number,
+  detail: FormationDetail,
+): [number, number, number] {
+  const tau = Math.PI * 2;
+  const comp = victorComponent(seed, detail);
+  const phase = victorDialPhase(time);
+  const rJitter = (hash11(seed * 27.1 + 4.7) - 0.5) * 0.012;
+  const aJitter = (hash11(seed * 19.3 + 8.1) - 0.5) * 0.03;
+
+  if (comp === 0) {
+    const theta = tau * lambda + phase + aJitter;
+    const radius = 0.5 * (1 + rJitter);
+    return [Math.cos(theta) * radius, Math.sin(theta) * radius, 0.18];
+  }
+
+  if (comp === 1) {
+    // Continuous counter-rotation at half the outer average step rate.
+    const theta = tau * lambda - 0.5 * VICTOR_STEP_RATE * time + 0.6 + aJitter;
+    const radius = 0.24 * (1 + rJitter);
+    return [Math.cos(theta) * radius, Math.sin(theta) * radius, -0.15];
+  }
+
+  if (comp === 2) {
+    const spoke = Math.floor(hash11(seed * 31.7 + 6.3) * 6);
+    const theta = spoke * (tau / 6) + phase + aJitter * 0.12;
+    const radius = 0.24 + (0.5 - 0.24) * lambda + rJitter;
+    return [Math.cos(theta) * radius, Math.sin(theta) * radius, 0];
+  }
+
+  if (comp === 3) {
+    // Hexagon rim: six chord edges between the 60° lattice vertices.
+    const edge = Math.floor(lambda * 6);
+    const t = lambda * 6 - edge;
+    const a0 = edge * (tau / 6) + phase;
+    const a1 = (edge + 1) * (tau / 6) + phase;
+    const v0x = Math.cos(a0) * 0.13;
+    const v0y = Math.sin(a0) * 0.13;
+    const v1x = Math.cos(a1) * 0.13;
+    const v1y = Math.sin(a1) * 0.13;
+    let x = v0x + (v1x - v0x) * t;
+    let y = v0y + (v1y - v0y) * t;
+    const len = Math.hypot(x, y) || 1;
+    x += (x / len) * rJitter * 0.2;
+    y += (y / len) * rJitter * 0.2;
+    return [x, y, 0.03];
+  }
+
+  if (comp === 4) {
+    const band = hash11(seed * 37.3 + 9.2);
+    const outerBand = band < 0.5;
+    const radius = (outerBand ? 0.37 : 0.56) * (1 + rJitter);
+    const theta =
+      tau * lambda +
+      (outerBand ? 1 : -1) * VICTOR_ORBIT_RATE * time +
+      aJitter;
+    return [
+      Math.cos(theta) * radius,
+      Math.sin(theta) * radius,
+      outerBand ? 0.05 : -0.05,
+    ];
+  }
+
+  if (comp === 6) {
+    const theta = tau * lambda - phase + aJitter;
+    const radius = 0.44 * (1 + rJitter);
+    return [Math.cos(theta) * radius, Math.sin(theta) * radius, 0];
+  }
+
+  // Iris — a tiny gaussian core at the centre; the shader breathes its light.
+  const gx = hash11(seed * 29.1 + 2.4) + hash11(seed * 41.7 + 3.1) - 1;
+  const gy = hash11(seed * 53.3 + 5.9) + hash11(seed * 61.3 + 7.7) - 1;
+  return [gx * 0.018, gy * 0.018, 0.06];
+}
+
 /** JS mirror of jinHome. Used only to seed the GPGPU textures; the shader
  * re-derives the target every frame. Adjacent filaments share a ribbon, so
  * Tier2 reads as a double helix, Tier3 as a triple, Tier1 as one ribbon. The
@@ -606,6 +744,9 @@ export function formationHome(
   }
   if (formationId === 'dragunov') {
     return dragunovHome(lambda, seed, time, detail);
+  }
+  if (formationId === 'victor') {
+    return victorHome(lambda, seed, time, detail);
   }
   throw new Error(`Formation "${formationId}" has no home function.`);
 }

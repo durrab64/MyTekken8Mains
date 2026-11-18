@@ -22,7 +22,7 @@ blending only on the sprite pass; no depth buffer, no post-processing.
 | Jin — Ember Pillar | Approved reference (R2.4) | 2.2-turn DNA-like double helix; warm ember; spring 2.6 |
 | Claudio — Radiant Orbit | Implemented R2.5-1 | Nested inclined orbits; restrained vertical crown halo; luminous focal star; Kepler-like hierarchy |
 | Dragunov — Frost Curtain | **Implemented R2.5-2** | Three depth-layered sheets (z = −0.19 / 0.0 / +0.19) of vertical columns; controlled dissolution; crystal-glint sparks; pulse travels one column at a time |
-| Victor — Precision Dial | Reserved (schema only) | — |
+| Victor — Precision Dial | **Implemented R2.5-3** | Counter-rotating dial: quantised 30° clunks, six rigid spokes, recessed hex/iris, free-running orbiter bands; deep violet/cyan |
 | Lars — Bolt Filament | Reserved (schema only) | — |
 
 ### Claudio — Radiant Orbit (R2.5-1)
@@ -51,17 +51,31 @@ Layered frozen-curtain, structurally distinct from Jin's helix and Claudio's rin
 - **Interaction:** same shared gaussian disturbance; fall dominates mean displacement (expected ≈ 0.25–0.3; jin ≈ 0.05 since it barely moves). Cursor leaves a coherent swirled cavity that springs back with the column intact.
 - **Analytic fallback (`?nofloat`):** same geometry, verified identical visuals (capture `r252-dragunov-analytic-1440.png`); formation switching and reset work.
 
+### Victor — Precision Dial (R2.5-3)
+
+A quantised mechanical dial, structurally distinct from the helix, the orbits and the curtain:
+- **Components** (seed-range partition; total = tier budget, no extra allocation):
+  - T2 canonical: outer rim 28% (r 0.50, z +0.18, violet), inner ring 28% (r 0.24, z −0.15, cyan), spokes 24% (r 0.24→0.50, six at 60°), hex rim 12% (chord perimeter at r 0.13), orbiters 5% (bands at 0.37/+0.05 and 0.56/−0.05), iris 3% (σ ≈ 0.018 gaussian core).
+  - T1 lite (450): outer 47.5% + inner 47.5% + iris 5% — the rings-and-iris identity holds; quantisation is retained.
+  - T3 (2 200): outer 26% / inner 26% / spokes 22% / hex 11% / orbiters 6% / counter-phase shimmer ring 6% (r 0.44) / iris 3%. Detail, not density or glow, is added.
+- **Motion:** `victorDialPhase(t) = mod(segment, 12)·30° + easeOutCubic(fract)·30°` every 1.1 s — a stepped clunk, not a smooth drift. The inner ring counter-rotates continuously at −0.5× the outer average step rate; spokes and hex stay rigid with the outer phase; the two orbiter bands are the only smooth element (±0.5 rev / 12 s); iris position is static with a slow breathing twinkle. Only the rim flares on the clunk.
+- **Stiffness:** lattice members (rings/spokes/hex/shimmer/iris) run at spring 3.2 and curl 0.18 through per-particle multipliers on the authoritative panel spring (default 2.6) and the registry `curlScale` 0.4; orbiters run at spring 2.2 and normal curl (per-particle ×2.5). The class is derived from the existing seed byte — no texture or storage growth.
+- **Shading/glyph:** diamond sprite contour (`|q.x|+|q.y|`) for Victor only, carried by a new `vGlyph` varying; violet rim, cyan inner/hex, mixed spokes, faint orbiters, hot cyan-white iris. Every other formation keeps its exact sprite path (`vGlyph` = 0).
+- **Atmosphere (mode 3):** deep plum module, one hard upper-left lamp at (−0.55, 0.60), faint horizontal datum lines (≤ 2% alpha), subtle chromatic fringe at the lamp edge, vertical plum→fog gradient. No bloom and no Jin sampling.
+- **Interaction:** the machine resists — lattice particles push and snap back hard; orbiters take the swirl more gracefully. Measured mean displacement 0.088 → 0.135 during a two-orbit sweep, recovered to 0.042 at the quiescent tail of a step. The rim shears briefly during each ease (spring lag), then re-seats; symmetry and quantisation survive the disturbance.
+- **Analytic fallback (`?nofloat`):** the dial geometry is reproduced (capture `r253-victor-t2-1440-nofloat.png`); switching and reset are intact. `?notimer`, reduced motion, resize and render-scale changes also pass with Victor active.
+
 ### Engine and lifecycle
 - `setFormation(id)`: registry validation → deterministic re-seed at current `simTime` → float-target re-verify. Switching rides the approved 380 ms wipe; **no cross-blend**, no long morph.
-- Jin ↔ Claudio switching verified repeatedly both directions, while paused, under tier round-trips (T1↔T3), under context loss/restore (formation preserved), and reset while Claudio is active. The DOM formation row follows (`aria-pressed`), and `LabStats.formation` / `LabStats.formationName` report the active formation.
+- Jin ↔ Claudio ↔ Dragunov ↔ Victor switching verified repeatedly in all directions, while paused, under tier round-trips (T1 ↔ T2 ↔ T3), under context loss/restore (formation preserved), and reset with Victor active. The DOM formation row follows (`aria-pressed`), the hero copy is formation-aware, and `LabStats.formation` / `LabStats.formationName` report the active formation.
 - Context loss abandons everything; restore re-compiles, re-uploads shaders in the active formation's mode, re-seeds it, and re-verifies float targets.
 
 ### Fallback behaviour
 
-- `?nofloat` → analytic formation-lite per formation (Jin reproduces its geometry; **Claudio reproduces its nested-orbit geometry** — capture `r251-claudio-analytic-1440.png`). Both verified in-canvas; invalid ids → invisible sentinel + explicit panel error.
+- `?nofloat` → analytic formation-lite per formation (Jin reproduces its geometry; **Claudio reproduces its nested-orbit geometry** — capture `r251-claudio-analytic-1440.png`; **Victor reproduces the dial** — capture `r253-victor-t2-1440-nofloat.png`). Verified in-canvas; invalid ids → invisible sentinel + explicit panel error.
 - `?notimer` → GPU timing hidden as "unavailable", 4 draws unchanged.
 - Reduced motion → Tier 0 CSS, no context (formation selector disabled).
-- Cross-formation glyph law, pulse envelopes and per-formation stiffness classes remain schema fields, not active behaviour, except Claudio's component partition (implemented).
+- Cross-formation glyph law, pulse envelopes and per-formation stiffness classes remain schema fields, not active behaviour, except Claudio's component partition and Victor's diamond glyph + lattice/orbiter stiffness classes (implemented).
 
 ### Measured performance (this machine, same session, medians; GPU timer covers all 4 draws)
 
@@ -76,14 +90,29 @@ Jin and Claudio remain within the ±10% median gate throughout. Dragunov's home 
 
 Jin remained within the ±10% median gate throughout (worst transient T3 cell ±15% at one sample, verified as noise by repeats). CPU frame time is rAF-pacing limited (~17 ms under `?rafshim`); GPU medians are the reported metric. All measurements noise-flagged.
 
+### R2.5-3 measurements (this machine, same session, GPU timer over all 4 draws, medians)
+
+| Cell | Victor | Jin (same-session anchor) | Claudio | Dragunov |
+|---|---|---|---|---|
+| 1440×900 T1 / T2 / T3 | 0.603 / 0.636 / 0.683 ms | 1.035 / 1.066 / 1.113 ms | 1.023 ms (T2) | 1.065 ms (T2) |
+| 768×1024 T2 | 0.495 ms | — | — | — |
+| 390×844 T2 | 0.309 ms | — | — | — |
+
+Victor is below Jin in every measured cell and far under the T1/T2/T3 budgets (3 / 4 / 5 ms). A direct A/B against the pre-Victor commit (`ba5d328`) in the same session measured Jin T1/T2/T3 at 1.036 / 1.060 / 1.175 ms baseline versus 1.030 / 1.066 / 1.112 ms current (−0.6% / +0.6% / −5.3%), inside the ±10% gate. The absolute shift versus the earlier tables (~2.5×) affected every formation equally. CPU frame medians were ~24 ms across all cells under `?rafshim` (rAF-pacing limited, reported separately from the GPU timer). GPU p95 remains noisy; medians are the gate.
+
 ### Known limitations
 
-- Only Jin, Claudio and Dragunov are functional; Victor and Lars remain inert schema entries.
+- Only Jin, Claudio, Dragunov and Victor are functional; Lars remains an inert schema entry.
 - The crown halo is an azimuth-rotated vertical ellipse (not a literal y–z plane ring, which would be edge-on and invisible); documented deviation from the R2.5 sketch, same intent and restraint.
 - Inclination is ±22° (with radii 0.22 / 0.42 / 0.68), not the sketch's ±14° — the approved render at ±14° was illegible at 1,100 particles; the wider spread keeps planes visually distinct.
 - The star is comet-arc distributed (λ spread ±0.45) for directional readability, not a radial lamp — derived from the existing budget per the owner's approved amendment.
 - Motes' tangential stretch (Claudio: base 1.32, speed 0.9) is mild and deliberate; Jin's law unchanged.
 - Dragunov's fall cycle is `fract(λ + phase + t·fallRate)` with fall rate 0.08–0.12 λ·s⁻¹ — particles recycle by fading at the extremes; the CPU readback metric is dominated by the fall's spring lag (~0.27), not by drift or a defects.
 - Dragunov's analytic fallback identity verified in-canvas; invalid ids park invisible (sentinel) + explicit error.
+- Victor's hex is drawn as a chord perimeter between the six 60° vertices, not as six isolated dots — at 1,100 particles the isolated-vertex version read as generic points; the perimeter keeps the 6-fold rim legible. Documented deviation from the §3.4 "hexagon rim / 6 vertices" sketch, same intent.
+- Victor's chromatic fringe is a faint lamp-edge ring in the atmosphere, not a rim-locked specular effect; this keeps the sprite pass unchanged and the effect restrained. Documented deviation from §6.4.
+- Victor's rim visibly shears during each 30° ease and re-seats before the next step — that is the intended mechanical "clunk" (spring lag on a quantised home), not a defect. The recovered capture is taken at the quiescent tail of an interval (`r253-victor-t2-1440-recovered.png`).
+- Victor T1 intentionally drops spokes/hex/orbiters (rings + iris only, per §3.4); it reads as a two-ring dial rather than the full six-spoke instrument. T3 adds the shimmer ring/orbiters instead of density.
+- Victor's timing was measured with the GPU timer over all four draws; the separate CPU frame medians (~24 ms under `?rafshim`) are pacing-limited and not a formation cost.
 - GPU p95 values are noisy on this machine; treat medians as the gate.
 - `motion-lab/index.html` metadata updated to R2.5 Stage 0 in the housekeeping milestone.

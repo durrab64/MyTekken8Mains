@@ -28,6 +28,14 @@ const TIER_OPTIONS: TierOption[] = [
   { tier: 3, name: 'Full', detail: '2,200 particles' },
 ];
 
+const FORMATION_LEDE: Record<FormationId, string> = {
+  jin: 'A GPU-simulated column of ember filaments held by a spring field. Move through the column to displace it; release and the formation settles back into shape.',
+  claudio: 'Nested inclined orbits around a luminous focal star, held by a spring field. Move through the planes to displace them; release and the orbit settles back into its hierarchy.',
+  dragunov: 'Three depth-layered sheets of frozen vertical columns, dissolving and re-forming as they fall. Move through the curtain to break the columns; release and they close again.',
+  victor: 'A quantised mechanical dial: a violet outer rim clunks in 30° steps while the cyan inner ring counter-rotates. Move through the lattice and it resists, then snaps back.',
+  lars: 'A directional energy trunk with branching forks and a travelling charge pulse. Reserved for a later stage.',
+};
+
 interface ParamControl {
   key: keyof LabParams;
   label: string;
@@ -931,17 +939,18 @@ export default function MotionLab() {
         <aside className="lab-side">
           <section className="lab-intro">
             <p className="lab-kicker">
-              {activeDefinition.id === 'jin' ? 'Approved' : 'Planned'} /{' '}
-              {activeDefinition.name}
+              {activeDefinition.id === 'jin'
+                ? 'Approved'
+                : activeDefinition.implemented
+                  ? 'Implemented'
+                  : 'Planned'}{' '}
+              / {activeDefinition.name}
             </p>
             <h1 className="lab-title">
-              Ember <span>Pillar</span>
+              {activeDefinition.name.split(' ')[0]}{' '}
+              <span>{activeDefinition.name.split(' ').slice(1).join(' ')}</span>
             </h1>
-            <p className="lab-lede">
-              A GPU-simulated column of ember filaments held by a spring
-              field. Move through the column to displace it; release and
-              the formation settles back into shape.
-            </p>
+            <p className="lab-lede">{FORMATION_LEDE[activeDefinition.id]}</p>
             <div className="lab-tags">
               <span>GPGPU state</span>
               <span>Pointer wake</span>

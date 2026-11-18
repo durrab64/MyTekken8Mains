@@ -59,7 +59,7 @@ export interface LabStats {
   gpuMedianMs: number | null;
   gpuStatus: GpuTimingStatus;
   tier: ActiveTier;
-  /** Active formation identity. Only 'jin' is implemented in this build. */
+  /** Active formation identity. Implemented ids only; `lars` remains planned. */
   formation: FormationId;
   formationName: string;
   particleCount: number;

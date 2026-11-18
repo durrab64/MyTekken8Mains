@@ -94,7 +94,7 @@ export interface MotionLabOptions {
   tier: ActiveTier;
   params: LabParams;
   resolutionScale?: number;
-  /** Active formation. Only 'jin' is implemented; anything else throws at boot. */
+  /** Active formation. Unimplemented ids throw at boot. */
   formation?: FormationId;
   onStats: (stats: LabStats) => void;
 }
@@ -209,7 +209,7 @@ export class MotionLabEngine {
     )[requested];
     if (!definition || !definition.implemented) {
       throw new Error(
-        `Formation "${requested}" is not implemented in this build (only "jin" is available).`,
+        `Formation "${requested}" is not implemented in this build.`,
       );
     }
     this.formationId = definition.id;
@@ -305,7 +305,7 @@ export class MotionLabEngine {
   /**
    * Formation switch lifecycle (approved switching architecture):
    * 1. validate the requested id against the registry;
-   * 2. prepare the target formation's deterministic state (only `jin` exists);
+   * 2. prepare the target formation's deterministic state;
    * 3. re-seed beneath the caller's 380 ms wipe — the canvas hides the swap;
    * 4. keep the active formation across context loss/restore (restore re-seeds it).
    *
