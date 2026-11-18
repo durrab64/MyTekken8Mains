@@ -172,12 +172,12 @@ export const FORMATIONS: Record<FormationId, FormationDefinition> = {
     depth: 'trunk',
     atmosphere: { mode: 4, anchor: [0, 0], band: 1, pulsePeriod: 2.2 },
     palette: {
-      deep: [0.006, 0.022, 0.055],
-      fog: [0.03, 0.09, 0.2],
-      glow: [0.18, 0.55, 0.95],
-      vein: [0.95, 0.8, 0.28],
-      tintA: [0.2, 0.62, 0.95],
-      tintB: [0.95, 0.78, 0.22],
+      deep: [0.008, 0.03, 0.095],
+      fog: [0.04, 0.15, 0.38],
+      glow: [0.16, 0.52, 1.0],
+      vein: [0.1, 0.28, 0.62],
+      tintA: [0.15, 0.5, 1.0],
+      tintB: [0.72, 0.9, 1.0],
     },
   },
 };

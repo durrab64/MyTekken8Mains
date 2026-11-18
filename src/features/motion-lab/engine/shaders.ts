@@ -594,9 +594,9 @@ float larsPulseFront(float localS, float t) {
 float larsSizeScale(float seed) {
   float comp = larsComponent(seed);
   if (comp > 6.5) return 1.05;
-  if (comp < 0.5) return 1.22;
-  if (comp < 2.5) return 1.06;
-  return 0.90;
+  if (comp < 0.5) return 1.75;
+  if (comp < 2.5) return 1.25;
+  return 1.0;
 }
 
 /**
@@ -717,7 +717,7 @@ void main() {
     color += vec3(0.55, 0.12, 0.45) * fringe;
     color += vec3(0.36, 0.30, 0.52) * datum;
   } else if (uAtmosMode == 4) {
-    // Lars — Bolt Filament: storm-grey diagonal void, one key that travels
+    // Lars — Bolt Filament: storm-blue diagonal void, one key that travels
     // root-to-tip with the charge pulse, and a narrow arrival micro-lift.
     // The pulse term is uGlow * 0.052 at peak — below the 8% luminance cap.
     float pulsePhase = fract(uTime / 2.2);
@@ -725,11 +725,11 @@ void main() {
                        mix(-0.95, 0.95, pulsePhase));
     vec2 kd = p - keyPos;
     vec2 kd2 = kd * vec2(3.4, 2.1);
-    float key = exp(-dot(kd2, kd2)) * 0.070;
+    float key = exp(-dot(kd2, kd2)) * 0.078;
     float diagonal = labFbm2(vec2((p.x * 0.72 - p.y * 0.55) * 2.6 + uTime * 0.025,
                                   p.y * 1.3 - uTime * 0.02));
-    float bands = smoothstep(0.48, 0.82, diagonal) * 0.032;
-    float path = exp(-pow((p.y * 0.86 - p.x * 0.50 - 0.18) / 0.62, 2.0)) * 0.034;
+    float bands = smoothstep(0.48, 0.82, diagonal) * 0.040;
+    float path = exp(-pow((p.y * 0.86 - p.x * 0.50 - 0.18) / 0.62, 2.0)) * 0.042;
     color = mix(uDeep * 0.38, uFog * 0.16, smoothstep(0.05, 0.95, vUv.y));
     color += uGlow * (key + bands + path);
     color += uGlow * uAtmosPulse * 0.052;
@@ -963,12 +963,15 @@ void main() {
   float lambda = V.w;
   float alphaFloor = uFormation == LAB_FORMATION_JIN
     ? 0.22 + 0.32 * labHash11(seed * 11.0 + 2.0)
-    : 0.36 + 0.13 * labHash11(seed * 11.0 + 2.0);
+    : (uFormation == LAB_FORMATION_LARS
+        ? 0.58 + 0.22 * labHash11(seed * 11.0 + 2.0)
+        : 0.36 + 0.13 * labHash11(seed * 11.0 + 2.0));
   float spark;
   float comp = -1.0;
   float gain = 1.0;
   float compAlpha = 1.0;
   float larsPulse = 0.0;
+  float larsRidge = 0.0;
   if (uFormation == LAB_FORMATION_JIN) {
     spark = step(0.88, seed);
   } else if (uFormation == LAB_FORMATION_CLAUDIO) {
@@ -997,15 +1000,35 @@ void main() {
     gain *= 0.82 + 0.35 * dissolve;
   } else if (uFormation == LAB_FORMATION_LARS) {
     // Lars — one cable: trunk and sockets read bright, forks a touch cooler,
-    // sub-branches are the finest detail. Gold is reserved for the sockets
-    // and for the travelling charge front.
+    // sub-branches are the finest detail. Electric-blue body; ice-white
+    // charge front; gold is reserved for the sockets.
     comp = larsComponent(seed);
     spark = comp > 6.5 ? 1.0
           : (labHash11(seed * 91.7 + 3.1) > 0.97 ? 1.0 : 0.0);
-    if (comp < 0.5) { gain = 1.35; compAlpha = 1.15; }
-    else if (comp < 2.5) { gain = 1.18; compAlpha = 1.02; }
-    else if (comp < 6.5) { gain = 1.02; compAlpha = 0.90; }
+    if (comp < 0.5) { gain = 1.85; compAlpha = 1.3; }
+    else if (comp < 2.5) { gain = 1.48; compAlpha = 1.15; }
+    else if (comp < 6.5) { gain = 1.22; compAlpha = 0.98; }
     else { gain = 2.00; compAlpha = 2.15; }
+    // Electrical texture — Lars-gated, deterministic and bounded. Crawling
+    // ionization bands travel along the cable (visible even at pulse
+    // troughs), an irregular fast flicker phases per particle, and
+    // micro-arcs are short bright bursts pinned to the filament — attached
+    // to the structure, never floating noise.
+    float cableS = (comp < 0.5 || comp > 6.5)
+      ? clamp((pos.y + 1.18) / 2.36, 0.0, 1.0)
+      : lambda;
+    float band = larsFbm1(cableS * 7.0 - uTime * 1.6
+                          + (labHash11(seed * 57.3) - 0.5) * 6.2);
+    gain *= 0.70 + 0.82 * band;
+    float fl1 = sin(uTime * 11.3 + seed * 39.7);
+    float fl2 = sin(uTime * 13.7 + seed * 27.3 + sin(uTime * 5.1 + seed * 17.0));
+    float arc = smoothstep(0.12, 0.90, fl1 * fl2);
+    gain *= 0.66 + 0.78 * arc;
+    compAlpha *= 0.74 + 0.48 * arc;
+    float microPhase = seed * 91.7 + uTime * 19.0 + sin(seed * 33.3 - uTime * 13.0) * 2.6;
+    float microArc = smoothstep(0.88, 0.985, sin(microPhase)) * (comp < 6.5 ? 1.0 : 0.0);
+    spark = max(spark, microArc);
+    gain *= 1.0 + 1.45 * microArc;
   } else {
     // Victor — mechanical lattice. The outer rim flares on each clunk; the
     // inner ring stays dim so the luminance ladder reads rim-over-core at
@@ -1060,9 +1083,14 @@ void main() {
     float localS = (comp < 0.5 || comp > 6.5)
       ? clamp((pos.y + 1.18) / 2.36, 0.0, 1.0)
       : lambda;
-    larsPulse = larsPulseFront(localS, uTime);
-    gain *= 1.0 + 1.25 * larsPulse;
-    compAlpha *= 1.0 + 0.40 * larsPulse;
+    // Sharp thin ridge inside the 0.18 envelope — a harder, brighter edge
+    // on the travelling front; the 0.45 Hz cycle itself is unchanged.
+    float phase = fract(uTime / 2.2 - localS);
+    float d = min(phase, 1.0 - phase);
+    larsPulse = 1.0 - smoothstep(0.0, 0.18, d);
+    larsRidge = exp(-pow(d / 0.05, 2.0));
+    gain *= 1.0 + 0.85 * larsPulse + 1.70 * larsRidge;
+    compAlpha *= 1.0 + 0.35 * larsPulse + 0.30 * larsRidge;
     if (comp > 6.5) {
       if (uFormationDetail == 2) {
         float pulseIndex = floor(uTime / 2.2);
@@ -1128,14 +1156,14 @@ void main() {
     else if (comp < 1.5) color = uTintA;
     else color = mix(uTintA, uTintB, 0.32);
   } else if (uFormation == LAB_FORMATION_LARS) {
-    // Lars — blue-white cable with a gold charge front; sockets are the only
-    // persistent gold points. The pulse mix is capped so junctions cannot
-    // stack into a white blob.
-    if (comp < 0.5) color = mix(uTintA, uTintB, 0.16 + 0.30 * larsPulse);
-    else if (comp < 2.5) color = mix(uTintA, uTintB, 0.10 + 0.35 * larsPulse);
-    else if (comp < 6.5) color = mix(uTintA, uTintB, 0.08 + 0.30 * larsPulse);
-    else color = mix(uTintB, vec3(1.0), 0.14 + 0.16 * larsPulse);
-    color = mix(color, vec3(1.0), larsPulse * (comp > 6.5 ? 0.28 : 0.22));
+    // Lars — electric-blue cable with an ice-white ridge on the charge
+    // front; sockets carry the only persistent gold. The mix is capped so
+    // junctions cannot stack into a white blob.
+    if (comp < 0.5) color = mix(uTintA, uTintB, 0.15 + 0.32 * larsPulse + 0.42 * larsRidge);
+    else if (comp < 2.5) color = mix(uTintA, uTintB, 0.10 + 0.34 * larsPulse + 0.42 * larsRidge);
+    else if (comp < 6.5) color = mix(uTintA, uTintB, 0.08 + 0.30 * larsPulse + 0.36 * larsRidge);
+    else color = mix(vec3(0.98, 0.72, 0.28), vec3(1.0), 0.10 + 0.16 * larsPulse);
+    color = mix(color, vec3(1.0), larsRidge * (comp > 6.5 ? 0.30 : 0.42));
   } else {
     // Victor — violet rim against a cyan core; spokes split the two.
     if (comp < 0.5) color = uTintA;
@@ -1153,7 +1181,7 @@ void main() {
          * (0.78 + 0.50 * spark)
          * compAlpha
          * formationVisibility();
-  vHard = max(spark, larsPulse * 0.9);
+  vHard = max(spark, clamp(larsPulse * 0.75 + larsRidge * 0.5, 0.0, 1.0));
 }
 `;
 
@@ -1216,13 +1244,16 @@ void main() {
   vec2 vel = motion.xy;
   float alphaFloor = uFormation == LAB_FORMATION_JIN
     ? 0.22 + 0.32 * labHash11(seed * 11.0 + 2.0)
-    : 0.36 + 0.13 * labHash11(seed * 11.0 + 2.0);
+    : (uFormation == LAB_FORMATION_LARS
+        ? 0.58 + 0.22 * labHash11(seed * 11.0 + 2.0)
+        : 0.36 + 0.13 * labHash11(seed * 11.0 + 2.0));
 
   float spark;
   float comp = -1.0;
   float gain = 1.0;
   float compAlpha = 1.0;
   float larsPulse = 0.0;
+  float larsRidge = 0.0;
   if (uFormation == LAB_FORMATION_JIN) {
     spark = step(0.88, seed);
   } else if (uFormation == LAB_FORMATION_CLAUDIO) {
@@ -1251,15 +1282,35 @@ void main() {
     gain *= 0.82 + 0.35 * dissolve;
   } else if (uFormation == LAB_FORMATION_LARS) {
     // Lars — one cable: trunk and sockets read bright, forks a touch cooler,
-    // sub-branches are the finest detail. Gold is reserved for the sockets
-    // and for the travelling charge front.
+    // sub-branches are the finest detail. Electric-blue body; ice-white
+    // charge front; gold is reserved for the sockets.
     comp = larsComponent(seed);
     spark = comp > 6.5 ? 1.0
           : (labHash11(seed * 91.7 + 3.1) > 0.97 ? 1.0 : 0.0);
-    if (comp < 0.5) { gain = 1.35; compAlpha = 1.15; }
-    else if (comp < 2.5) { gain = 1.18; compAlpha = 1.02; }
-    else if (comp < 6.5) { gain = 1.02; compAlpha = 0.90; }
+    if (comp < 0.5) { gain = 1.85; compAlpha = 1.3; }
+    else if (comp < 2.5) { gain = 1.48; compAlpha = 1.15; }
+    else if (comp < 6.5) { gain = 1.22; compAlpha = 0.98; }
     else { gain = 2.00; compAlpha = 2.15; }
+    // Electrical texture — Lars-gated, deterministic and bounded. Crawling
+    // ionization bands travel along the cable (visible even at pulse
+    // troughs), an irregular fast flicker phases per particle, and
+    // micro-arcs are short bright bursts pinned to the filament — attached
+    // to the structure, never floating noise.
+    float cableS = (comp < 0.5 || comp > 6.5)
+      ? clamp((pos.y + 1.18) / 2.36, 0.0, 1.0)
+      : lambda;
+    float band = larsFbm1(cableS * 7.0 - uTime * 1.6
+                          + (labHash11(seed * 57.3) - 0.5) * 6.2);
+    gain *= 0.70 + 0.82 * band;
+    float fl1 = sin(uTime * 11.3 + seed * 39.7);
+    float fl2 = sin(uTime * 13.7 + seed * 27.3 + sin(uTime * 5.1 + seed * 17.0));
+    float arc = smoothstep(0.12, 0.90, fl1 * fl2);
+    gain *= 0.66 + 0.78 * arc;
+    compAlpha *= 0.74 + 0.48 * arc;
+    float microPhase = seed * 91.7 + uTime * 19.0 + sin(seed * 33.3 - uTime * 13.0) * 2.6;
+    float microArc = smoothstep(0.88, 0.985, sin(microPhase)) * (comp < 6.5 ? 1.0 : 0.0);
+    spark = max(spark, microArc);
+    gain *= 1.0 + 1.45 * microArc;
   } else {
     // Victor — mechanical lattice. The outer rim flares on each clunk; the
     // inner ring stays dim so the luminance ladder reads rim-over-core at
@@ -1314,9 +1365,14 @@ void main() {
     float localS = (comp < 0.5 || comp > 6.5)
       ? clamp((pos.y + 1.18) / 2.36, 0.0, 1.0)
       : lambda;
-    larsPulse = larsPulseFront(localS, uTime);
-    gain *= 1.0 + 1.25 * larsPulse;
-    compAlpha *= 1.0 + 0.40 * larsPulse;
+    // Sharp thin ridge inside the 0.18 envelope — a harder, brighter edge
+    // on the travelling front; the 0.45 Hz cycle itself is unchanged.
+    float phase = fract(uTime / 2.2 - localS);
+    float d = min(phase, 1.0 - phase);
+    larsPulse = 1.0 - smoothstep(0.0, 0.18, d);
+    larsRidge = exp(-pow(d / 0.05, 2.0));
+    gain *= 1.0 + 0.85 * larsPulse + 1.70 * larsRidge;
+    compAlpha *= 1.0 + 0.35 * larsPulse + 0.30 * larsRidge;
     if (comp > 6.5) {
       if (uFormationDetail == 2) {
         float pulseIndex = floor(uTime / 2.2);
@@ -1397,14 +1453,14 @@ void main() {
     else if (comp < 1.5) color = uTintA;
     else color = mix(uTintA, uTintB, 0.32);
   } else if (uFormation == LAB_FORMATION_LARS) {
-    // Lars — blue-white cable with a gold charge front; sockets are the only
-    // persistent gold points. The pulse mix is capped so junctions cannot
-    // stack into a white blob.
-    if (comp < 0.5) color = mix(uTintA, uTintB, 0.16 + 0.30 * larsPulse);
-    else if (comp < 2.5) color = mix(uTintA, uTintB, 0.10 + 0.35 * larsPulse);
-    else if (comp < 6.5) color = mix(uTintA, uTintB, 0.08 + 0.30 * larsPulse);
-    else color = mix(uTintB, vec3(1.0), 0.14 + 0.16 * larsPulse);
-    color = mix(color, vec3(1.0), larsPulse * (comp > 6.5 ? 0.28 : 0.22));
+    // Lars — electric-blue cable with an ice-white ridge on the charge
+    // front; sockets carry the only persistent gold. The mix is capped so
+    // junctions cannot stack into a white blob.
+    if (comp < 0.5) color = mix(uTintA, uTintB, 0.15 + 0.32 * larsPulse + 0.42 * larsRidge);
+    else if (comp < 2.5) color = mix(uTintA, uTintB, 0.10 + 0.34 * larsPulse + 0.42 * larsRidge);
+    else if (comp < 6.5) color = mix(uTintA, uTintB, 0.08 + 0.30 * larsPulse + 0.36 * larsRidge);
+    else color = mix(vec3(0.98, 0.72, 0.28), vec3(1.0), 0.10 + 0.16 * larsPulse);
+    color = mix(color, vec3(1.0), larsRidge * (comp > 6.5 ? 0.30 : 0.42));
   } else {
     // Victor — violet rim against a cyan core; spokes split the two.
     if (comp < 0.5) color = uTintA;
@@ -1422,6 +1478,6 @@ void main() {
          * (0.78 + 0.50 * spark)
          * compAlpha
          * formationVisibility();
-  vHard = max(spark, larsPulse * 0.9);
+  vHard = max(spark, clamp(larsPulse * 0.75 + larsRidge * 0.5, 0.0, 1.0));
 }
 `;
