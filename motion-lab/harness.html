@@ -173,8 +173,8 @@
       }
     };
 
-    // R2.5-0 switch lifecycle: Jin -> (rejected id) -> Jin, plus a
-    // deterministic reset/reseed pair. Only Jin may return true.
+    // R2.5-4 switch lifecycle: Jin -> Lars -> Jin, unknown-id rejection, plus a
+    // deterministic reset/reseed pair. All five implemented ids return true.
     window.formationTest = async (width, height, tier = 2) => {
       const frame = await window.loadFrame(width, height);
       const win = frame.contentWindow;
@@ -188,10 +188,11 @@
       const before = lab.getParticleState();
       const state0 = lab.getState();
 
-      const rejected = lab.setFormation('lars');
-      await sleep(60);
-      const afterReject = {
+      const switchedLars = lab.setFormation('lars');
+      await sleep(120);
+      const afterLars = {
         formation: lab.getState().formation,
+        state: lab.getParticleState(),
         error: lab.getStats() ? lab.getStats().runtimeError : null,
       };
 
@@ -220,8 +221,8 @@
         formationName: stats0.formationName,
         draws: stats0.drawsPerFrame,
         gpgpuBytes: stats0.gpgpuBytes,
-        rejected,
-        afterReject,
+        switchedLars,
+        afterLars,
         unknownReject,
         switched,
         afterSwitch,
@@ -238,7 +239,7 @@
       };
     };
 
-    // Full Jin <-> Claudio switch lifecycle: repeated switching both ways,
+    // Full five-way switch lifecycle: repeated switching in all directions,
     // switch-while-paused, reset and tier round-trip with Claudio active.
     window.switchTest = async (width, height) => {
       const frame = await window.loadFrame(width, height);
@@ -254,7 +255,10 @@
       };
       await sleep(1200);
       record('initial');
-      for (const id of ['claudio', 'jin', 'claudio', 'jin', 'claudio']) {
+      for (const id of [
+        'claudio', 'dragunov', 'victor', 'lars', 'jin',
+        'claudio', 'dragunov', 'victor', 'lars', 'jin',
+      ]) {
         const ok = lab.setFormation(id);
         await sleep(200);
         const s = lab.getStats();
@@ -416,22 +420,23 @@
 
     // Captures the live drawing buffer as a PNG download. Used because the
     // desktop screenshot path is unavailable when the host window is occluded.
+    // WebGL canvases without preserveDrawingBuffer may already be cleared when
+    // toDataURL runs, so copy the frame through a 2D canvas first.
     window.captureCanvas = async (name = 'capture') => {
       const frame = document.getElementById('stage').querySelector('iframe');
       const win = frame.contentWindow;
       const canvas = win.document.querySelector('canvas');
       if (!canvas) throw new Error('no canvas');
-      const url = await new Promise((resolve) => {
-        win.requestAnimationFrame(() => {
-          win.requestAnimationFrame(() => {
-            resolve(canvas.toDataURL('image/png'));
-          });
-        });
-      });
-      const a = win.document.createElement('a');
+      const copy = document.createElement('canvas');
+      copy.width = canvas.width;
+      copy.height = canvas.height;
+      const copyContext = copy.getContext('2d');
+      copyContext.drawImage(canvas, 0, 0);
+      const url = copy.toDataURL('image/png');
+      const a = document.createElement('a');
       a.href = url;
       a.download = name + '.png';
-      win.document.body.appendChild(a);
+      document.body.appendChild(a);
       a.click();
       a.remove();
       await sleep(700);

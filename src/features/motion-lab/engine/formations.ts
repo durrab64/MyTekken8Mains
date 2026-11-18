@@ -1,11 +1,10 @@
 /**
  * R2.5-0 formation data model for the isolated lab.
  *
- * Jin, Claudio, Dragunov and Victor are implemented and selectable. `lars` is
- * a reserved schema entry (`implemented: false`) so the registry, the type
- * system and the selector can cover the full five-character set. Every
- * shader-side branch for an unimplemented id resolves to a disabled sentinel,
- * never to invented geometry.
+ * Jin, Claudio, Dragunov, Victor and Lars are implemented and selectable. The
+ * registry, the type system and the selector cover the full five-character
+ * set. Unknown shader-side ids still resolve to a disabled sentinel, never to
+ * invented geometry.
  */
 export type FormationId = 'jin' | 'claudio' | 'dragunov' | 'victor' | 'lars';
 
@@ -21,13 +20,13 @@ export interface FormationPalette {
 export type FormationGlyph = 'streak' | 'chip' | 'diamond' | 'glint';
 
 export interface FormationAtmosphere {
-  /** 0 = Jin ember column (the only active mode); 1â€“4 reserved, not implemented. */
+  /** 0 Jin ember column / 1 Claudio / 2 Dragunov / 3 Victor / 4 Lars. */
   mode: number;
-  /** Key-light anchor in atmosphere p-space. Reserved; Jin mode ignores it. */
+  /** Key-light anchor in atmosphere p-space. Used by formations with a fixed lamp. */
   anchor: readonly [number, number];
-  /** Band width multiplier. Reserved; Jin mode ignores it. */
+  /** Band width multiplier. Reserved; current modes use their own constants. */
   band: number;
-  /** Pulse period in seconds. 0 = no pulse (Jin). Harness/UI must not imply activity otherwise. */
+  /** Charge-pulse period in seconds. 0 = no pulse (Jin/Claudio/Dragunov/Victor). */
   pulsePeriod: number;
 }
 
@@ -85,9 +84,9 @@ export const FORMATIONS: Record<FormationId, FormationDefinition> = {
       tintB: [1, 0.72, 0.3],
     },
   },
-  // Claudio, Dragunov and Victor are implemented (R2.5-1…R2.5-3). `lars` is a
-  // reserved schema entry (`implemented: false`) with a planned palette — it
-  // has no geometry, shading, atmosphere or fallback and is not selectable.
+  // Claudio, Dragunov, Victor and Lars are implemented (R2.5-1…R2.5-4). The
+  // registry carries identity, palette, glyph and safe defaults; geometry is
+  // evaluated by formationHome()/larsHome() in GLSL and mirrored in JS.
   claudio: {
     id: 'claudio',
     character: 'Claudio Serafino',
@@ -161,14 +160,15 @@ export const FORMATIONS: Record<FormationId, FormationDefinition> = {
     id: 'lars',
     character: 'Lars Alexandersson',
     name: 'Bolt Filament',
-    title: 'Planned formation â€” not implemented',
-    implemented: false,
+    title: 'The approved bolt-filament formation',
+    implemented: true,
     glyph: 'streak',
     radius: 1.2,
     spring: 3.0,
     curlScale: 0.7,
-    stretchBase: 1.0,
-    stretchSpeed: 0.35,
+    // Long electric streaks: Jin's 1.18 base stretched by the documented 1.3x.
+    stretchBase: 1.53,
+    stretchSpeed: 0.5,
     depth: 'trunk',
     atmosphere: { mode: 4, anchor: [0, 0], band: 1, pulsePeriod: 2.2 },
     palette: {
@@ -191,7 +191,7 @@ export const FORMATION_ORDER: readonly FormationId[] = [
   'lars',
 ] as const;
 
-/** Shader-side formation ids. Only index 0 is implemented. */
+/** Shader-side formation ids. All five indices are implemented. */
 export const FORMATION_INDEX: Record<FormationId, number> = {
   jin: 0,
   claudio: 1,
@@ -718,6 +718,293 @@ function claudioHome(
 }
 
 /**
+ * Lars component partition. Mirrors larsComponent() in the shaders.
+ *   0 trunk / 1 fork A / 2 fork B / 3 sub A1 / 4 sub A2 / 5 sub B1 /
+ *   6 sub B2 / 7 socket A / 8 socket B.
+ * T1 keeps the trunk, both forks and the junction sockets (simplified
+ * trunk-and-fork silhouette, no sub-branches); T2 adds both forks and
+ * the two junction sockets; T3 adds four sub-branches and widens the
+ * socket share.
+ */
+export function larsComponent(seed: number, detail: FormationDetail): number {
+  if (detail === 0) {
+    // Tier 1 — simplified but recognisable trunk-and-fork silhouette.
+    if (seed < 0.72) return 0;
+    if (seed < 0.84) return 1;
+    if (seed < 0.96) return 2;
+    if (seed < 0.98) return 7;
+    return 8;
+  }
+  if (detail === 2) {
+    if (seed < 0.54) return 0;
+    if (seed < 0.69) return 1;
+    if (seed < 0.84) return 2;
+    if (seed < 0.87) return 3;
+    if (seed < 0.9) return 4;
+    if (seed < 0.93) return 5;
+    if (seed < 0.96) return 6;
+    if (seed < 0.98) return 7;
+    return 8;
+  }
+  if (seed < 0.60) return 0;
+  if (seed < 0.78) return 1;
+  if (seed < 0.96) return 2;
+  if (seed < 0.98) return 7;
+  return 8;
+}
+
+export const LARS_PULSE_PERIOD = 2.2;
+export const LARS_PULSE_WIDTH = 0.18;
+const LARS_TRUNK_ROOT = -1.18;
+const LARS_TRUNK_TIP = 1.18;
+const LARS_BRANCH_A_START = 0.35;
+const LARS_BRANCH_B_START = -0.3;
+
+/** 1D value noise over hash11; mirrors larsNoise1() in the shaders. */
+function larsNoise1(value: number): number {
+  const i = Math.floor(value);
+  const f = F32(value - i);
+  const u = fmul(fmul(f, f), fsub(3, fmul(2, f)));
+  const a = hash11(F32(i));
+  const b = hash11(F32(i + 1));
+  return fadd(fmul(a, fsub(1, u)), fmul(b, u));
+}
+
+/** Two-octave 1D fbm in [0,1]; mirrors larsFbm1() in the shaders. */
+function larsFbm1(value: number): number {
+  const first = larsNoise1(value);
+  const second = larsNoise1(fadd(fmul(value, 2.03), 19.7));
+  return fadd(fmul(0.68, first), fmul(0.32, second));
+}
+
+/**
+ * Trunk centreline: 0.30*signed fbm(s*2.6 + t*0.8) + 0.16*sin(s*4.3 + t*3.1)
+ * + 0.05*sway. The lab's fbm is 0..1, so the fbm term is mapped to -1..1.
+ * Mirrors larsTrunkX() in the shaders.
+ */
+function larsTrunkX(y: number, time: number): number {
+  const fbm = larsFbm1(fadd(fmul(y, 2.6), fmul(time, 0.8)));
+  const signed = fsub(fmul(2, fbm), 1);
+  const wave = Math.sin(fadd(fmul(y, 4.3), fmul(time, 3.1)));
+  const sway = Math.sin(fadd(fmul(time, 0.3), 0.7));
+  return fadd(
+    fadd(
+      fadd(fmul(0.3, signed), fmul(0.16, wave)),
+      fmul(0.05, sway),
+    ),
+    fmul(0.30, y),
+  );
+}
+
+function larsBranchY(f: number, side: number): number {
+  const start = side > 0 ? LARS_BRANCH_A_START : LARS_BRANCH_B_START;
+  return fadd(start, fmul(f, fsub(LARS_TRUNK_TIP, start)));
+}
+
+/** Fork centreline: starts at the trunk junction and follows its own fbm. */
+function larsBranchX(f: number, side: number, time: number): number {
+  const y = larsBranchY(f, side);
+  const startY = side > 0 ? LARS_BRANCH_A_START : LARS_BRANCH_B_START;
+  const anchorX = larsTrunkX(startY, time);
+  const wig =
+    larsFbm1(
+      fadd(fadd(fmul(y, 3.6), fmul(time, 1.2)), fmul(side, 4.7)),
+    ) *
+      2 -
+    1;
+  // Divergence starts at zero so the fork's first particles sit inside the
+  // trunk (a junction, not a floating line); the fbm wiggle is also weighted
+  // by f so the root stays anchored.
+  const divergence = fmul(side, fmul(0.70, f));
+  const flick = fmul(side, fmul(0.12, smoothstep(0.82, 1, f)));
+  return fadd(
+    fadd(fadd(anchorX, divergence), flick),
+    fmul(0.2, fmul(wig, f)),
+  );
+}
+
+function larsSubBranch(
+  f: number,
+  side: number,
+  parentF: number,
+  endY: number,
+  spread: number,
+  time: number,
+): [number, number] {
+  const parentY = larsBranchY(parentF, side);
+  const parentX = larsBranchX(parentF, side, time);
+  const y = fadd(parentY, fmul(f, fsub(endY, parentY)));
+  const wig =
+    larsFbm1(
+      fadd(fadd(fmul(y, 4.8), fmul(time, 1.5)), fmul(side, 9.1)),
+    ) *
+      2 -
+    1;
+  const x = fadd(
+    fadd(parentX, fmul(side, fadd(0.05, fmul(spread, f)))),
+    fmul(0.16, wig),
+  );
+  return [x, y];
+}
+
+/**
+ * JS mirror of larsHome. One dominant trunk (two interleaved strands) with
+ * two distinct forks, gold junction sockets and optional Tier 3 sub-branches.
+ * The charge pulse is a shading envelope, so it never perturbs the spring.
+ */
+function larsHome(
+  lambda: number,
+  seed: number,
+  time: number,
+  detail: FormationDetail,
+  filament: number,
+): [number, number, number] {
+  const comp = larsComponent(seed, detail);
+  const strand = filament % 2;
+  const side = strand === 0 ? -1 : 1;
+  const microX = fmul(
+    fsub(hash11(fadd(fmul(seed, 31.7), 5.3)), 0.5),
+    0.012,
+  );
+  const microY = fmul(
+    fsub(hash11(fadd(fmul(seed, 47.1), 7.9)), 0.5),
+    0.01,
+  );
+  const microZ = fmul(
+    fsub(hash11(fadd(fmul(seed, 23.3), 3.7)), 0.5),
+    0.012,
+  );
+  const shimmer = fmul(
+    0.02,
+    Math.sin(
+      fadd(
+        fadd(fmul(time, 8.7), fmul(seed, Math.PI * 2)),
+        fmul(strand, 2.1),
+      ),
+    ),
+  );
+
+  if (comp === 0) {
+    const y = fadd(
+      fadd(LARS_TRUNK_ROOT, fmul(LARS_TRUNK_TIP - LARS_TRUNK_ROOT, lambda)),
+      fmul(microY, 0.5),
+    );
+    const fbmZ = larsFbm1(fadd(fmul(y, 1.3), fmul(time, 0.5)));
+    return [
+      fadd(
+        fadd(larsTrunkX(y, time), fmul(side, 0.035)),
+        fadd(microX, shimmer),
+      ),
+      y,
+      fadd(
+        fadd(
+          fmul(side, 0.045),
+          fmul(0.05, fsub(fmul(2, fbmZ), 1)),
+        ),
+        microZ,
+      ),
+    ];
+  }
+
+  if (comp === 1 || comp === 2) {
+    const branchSide = comp === 1 ? 1 : -1;
+    const y = larsBranchY(lambda, branchSide);
+    const fbmZ = larsFbm1(
+      fadd(
+        fadd(fmul(y, 1.7), fmul(time, 0.6)),
+        fmul(branchSide, 3.3),
+      ),
+    );
+    return [
+      fadd(
+        fadd(larsBranchX(lambda, branchSide, time), fmul(branchSide, 0.035)),
+        fadd(microX, fmul(shimmer, 0.7)),
+      ),
+      y,
+      fadd(
+        fadd(
+          fmul(side, 0.045),
+          fmul(0.04, fsub(fmul(2, fbmZ), 1)),
+        ),
+        microZ,
+      ),
+    ];
+  }
+
+  if (comp >= 3 && comp <= 6) {
+    let subSide = 1;
+    let parentF = 0.22;
+    let endY = 0.96;
+    let spread = 0.42;
+    if (comp === 4) {
+      parentF = 0.52;
+      endY = 1.12;
+      spread = 0.3;
+    } else if (comp === 5) {
+      subSide = -1;
+      parentF = 0.18;
+      endY = 0.88;
+      spread = 0.4;
+    } else if (comp === 6) {
+      subSide = -1;
+      parentF = 0.48;
+      endY = 1.06;
+      spread = 0.3;
+    }
+    const [x, y] = larsSubBranch(
+      lambda,
+      subSide,
+      parentF,
+      endY,
+      spread,
+      time,
+    );
+    return [
+      fadd(fadd(x, microX), fmul(shimmer, 0.6)),
+      y,
+      fadd(fmul(subSide, 0.03), microZ),
+    ];
+  }
+
+  // Junction sockets: persistent bright points at the two fork origins,
+  // nudged toward the camera so the gold glint reads against the blue cable.
+  const socketSide = comp === 7 ? 1 : -1;
+  const socketY = comp === 7 ? LARS_BRANCH_A_START : LARS_BRANCH_B_START;
+  return [
+    fadd(
+      fadd(larsTrunkX(socketY, time), fmul(socketSide, 0.04)),
+      fmul(microX, 1.4),
+    ),
+    fadd(socketY, fmul(microY, 1.2)),
+    fadd(0.12, fadd(fmul(socketSide, 0.02), fmul(microZ, 1.2))),
+  ];
+}
+
+/** Fractional position of the charge front in [0,1); 1 / 2.2 s = 0.455 Hz. */
+export function larsPulsePhase(time: number): number {
+  return fractF(time / LARS_PULSE_PERIOD);
+}
+
+/** Brightness envelope of the front at a local parameter; mirrors the GLSL. */
+export function larsPulseFront(localS: number, time: number): number {
+  const phase = fractF(time / LARS_PULSE_PERIOD - localS);
+  const distance = Math.min(phase, 1 - phase);
+  return 1 - smoothstep(0, LARS_PULSE_WIDTH, distance);
+}
+
+/**
+ * Atmosphere micro-lift: a short arrival flash at the tip plus a fading
+ * afterglow at the root. Capped at 1 and applied by the atmosphere shader as
+ * a multiplier well below the documented 8% luminance ceiling.
+ */
+export function larsAtmospherePulse(time: number): number {
+  const phase = larsPulsePhase(time);
+  const arrival =
+    smoothstep(0.88, 0.97, phase) * (1 - smoothstep(0.97, 1, phase));
+  const afterglow = (1 - smoothstep(0, 0.12, phase)) * 0.55;
+  return Math.min(1, arrival + afterglow);
+}
+
 /**
  * Formation-aware home evaluation. Implemented ids route to their per-
  * formation function; any other id throws rather than fabricates geometry.
@@ -748,6 +1035,9 @@ export function formationHome(
   if (formationId === 'victor') {
     return victorHome(lambda, seed, time, detail);
   }
+  if (formationId === 'lars') {
+    return larsHome(lambda, seed, time, detail, filament);
+  }
   throw new Error(`Formation "${formationId}" has no home function.`);
 }
 
@@ -760,9 +1050,10 @@ export interface InitialParticleState {
  * One texel = one particle. RGB is position/velocity, position.w is the stable
  * seed, velocity.w is the formation coordinate lambda. Only implemented ids
  * may be seeded; anything else throws before any GPU state is written. Jin
- * seeds interleaved filaments; Claudio and Dragunov seed serially (the
- * lambda coordinate is arc / fall position directly, so distribution stays
- * uniform by construction).
+ * seeds interleaved filaments; Lars seeds two interleaved cable strands;
+ * Claudio/Dragunov/Victor seed serially (the lambda coordinate is the
+ * arc/fall/component position directly, so distribution stays uniform by
+ * construction).
  */
 export function buildInitialState(
   size: number,
@@ -780,7 +1071,8 @@ export function buildInitialState(
   const texels = size * size;
   const positions = new Float32Array(texels * 4);
   const velocities = new Float32Array(texels * 4);
-  const streams = formationId === 'jin' ? filaments : 1;
+  const streams =
+    formationId === 'jin' ? filaments : formationId === 'lars' ? 2 : 1;
   const rows = Math.max(1, Math.ceil(count / streams));
 
   for (let index = 0; index < texels; index += 1) {

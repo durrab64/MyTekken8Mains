@@ -23,7 +23,7 @@ blending only on the sprite pass; no depth buffer, no post-processing.
 | Claudio — Radiant Orbit | Implemented R2.5-1 | Nested inclined orbits; restrained vertical crown halo; luminous focal star; Kepler-like hierarchy |
 | Dragunov — Frost Curtain | **Implemented R2.5-2** | Three depth-layered sheets (z = −0.19 / 0.0 / +0.19) of vertical columns; controlled dissolution; crystal-glint sparks; pulse travels one column at a time |
 | Victor — Precision Dial | **Implemented R2.5-3** | Counter-rotating dial: quantised 30° clunks, six rigid spokes, recessed hex/iris, free-running orbiter bands; deep violet/cyan |
-| Lars — Bolt Filament | Reserved (schema only) | — |
+| Lars — Bolt Filament | **Implemented R2.5-4** | Directional charged cable: one FBM trunk, two forks, gold junction socket glints, travelling root-to-tip charge pulse |
 
 ### Claudio — Radiant Orbit (R2.5-1)
 
@@ -65,17 +65,31 @@ A quantised mechanical dial, structurally distinct from the helix, the orbits an
 - **Interaction:** the machine resists — lattice particles push and snap back hard; orbiters take the swirl more gracefully. Measured mean displacement 0.088 → 0.135 during a two-orbit sweep, recovered to 0.042 at the quiescent tail of a step. The rim shears briefly during each ease (spring lag), then re-seats; symmetry and quantisation survive the disturbance.
 - **Analytic fallback (`?nofloat`):** the dial geometry is reproduced (capture `r253-victor-t2-1440-nofloat.png`); switching and reset are intact. `?notimer`, reduced motion, resize and render-scale changes also pass with Victor active.
 
+### Lars — Bolt Filament (R2.5-4)
+
+A directional charged cable, structurally distinct from the helix, the orbits, the curtain and the dial:
+- **Components** (seed-range partition; total = tier budget, no extra allocation):
+  - T2 canonical: trunk 60% (two interleaved strands, y ∈ [−1.18, +1.18]), fork A 18% (forks at y = +0.35, diverges right), fork B 18% (forks at y = −0.30, diverges left), socket A 2% + socket B 2% (~22 particles each at 1,100; persistent bright junction points).
+  - T1 lite (450): trunk 72% / fork A 12% / fork B 12% / sockets 2% each — simplified but still a trunk-and-fork silhouette; no sub-branches. See the deviations below: this supersedes the design doc's "trunk only" drop list, per the stage brief's Tier 1 requirement.
+  - T3 (2 200): trunk 54% / fork A 15% / fork B 15% / four sub-branches 3% each (A1/A2 on fork A at parent f = 0.22/0.52; B1/B2 mirrored) / sockets 2% each. Detail, not density or glow.
+- **Geometry:** trunk `x(y,t) = 0.30·signedFbm(y·2.6 + t·0.8) + 0.16·sin(y·4.3 + t·3.1) + 0.05·sway(t) + 0.30·y` over y ∈ [−1.18, +1.18], two interleaved strands (±0.035 in-plane, ±0.045 z; filament parity `fi % 2`). Forks start at their trunk junction (`x = larsTrunkX(junctionY, t)`) and diverge outward monotonically, `x = join + side·(0.70·f) + side·0.12·smoothstep(0.82,1,f) + 0.20·fbm(y·3.6 + t·1.2 + side·4.7)·f`, f ∈ [0,1] over y ∈ [junction, +1.18] — junction-to-tip by construction, with an end-of-fork tip flick. Sub-branches leave the parent fork at f = 0.18–0.52 and fan outward (spread 0.30–0.42, end y 0.88–1.12, fbm amplitude ±0.16). The whole formation leans 0.30 over its height (the brief's "dominant diagonal energy path").
+- **Motion:** the structure is mostly stable — the drama is the pulse. A 2.2 s root-to-tip charge front (≈0.45 Hz) travels as a brightness envelope `fract(t/2.2 − λ)` with λ-width 0.18: on the trunk/sockets from root to tip, on forks/sub-branches from junction to tip. Shading-only, never a force term; the spring never sees it. Tier 3 alternates one socket pop per pulse (0.45 Hz maximum, in the ≤0.5 Hz rule); T3's sockets are capped per junction (`vAlpha ≤ 2.30`) against additive blow-out; the shared brightness clip applies.
+- **Interaction:** the cable bends like a cable. Trunk/sockets run spring 3.0 (per-particle ×1.1538 on the panel spring), forks/sub-branches spring 2.2 (×0.8462), curl scale 0.7 (registry) — the disturbance sweeps the cable into coherent arcs and it snaps back. Measured mean displacement 0.104 → 0.242 during a two-orbit sweep, back to 0.100 after 1.6 s (baseline ≈ 0.10 in this scene). Resting displacement ≈ 0.05–0.10 dominated by fbm/wave drift.
+- **Shading/glyph:** blue-white cable (uTintA → uTintB shallow mix); gold is reserved to the socket glints (persistent) and the travelling charge front (temporary). Sockets render as a custom four-point gold glint carried by `vGlyph = 2` inside the existing sprite quad — no new program, no new glyph enum; Victor's `vGlyph = 1` diamond path is untouched. Per-socket alpha cap 2.30 before the shared brightness clip.
+- **Atmosphere (mode 4):** storm-grey diagonal void, two fbm band layers drifting with t, a key light that travels root-to-tip with the pulse, a faint diagonal path glow, and an arrival micro-lift at the tip (+ root afterglow) through `uAtmosPulse` — total pulse contribution capped at `uGlow × 0.052`, far below the 8% luminance ceiling. Other formations keep `uAtmosPulse = 0`.
+- **Analytic fallback (`?nofloat`):** same geometry (capture `r254-lars-analytic-1440.png`); Lars sprites align to the filament tangent instead of the resting velocity (which is degenerate on a mostly-static formation — every other formation keeps the shared velocity-orientation path). Grainier than GPGPU (no integration) but recognizable and correct; switching, reset and rejection paths verified. `?notimer`, reduced motion, resize and render-scale pass.
+
 ### Engine and lifecycle
 - `setFormation(id)`: registry validation → deterministic re-seed at current `simTime` → float-target re-verify. Switching rides the approved 380 ms wipe; **no cross-blend**, no long morph.
-- Jin ↔ Claudio ↔ Dragunov ↔ Victor switching verified repeatedly in all directions, while paused, under tier round-trips (T1 ↔ T2 ↔ T3), under context loss/restore (formation preserved), and reset with Victor active. The DOM formation row follows (`aria-pressed`), the hero copy is formation-aware, and `LabStats.formation` / `LabStats.formationName` report the active formation.
+- Jin ↔ Claudio ↔ Dragunov ↔ Victor ↔ Lars switching verified repeatedly in all directions, while paused, under tier round-trips (T1 ↔ T2 ↔ T3), under context loss/restore (formation preserved), and reset. The DOM formation row follows (`aria-pressed`), the hero copy is formation-aware, and `LabStats.formation` / `LabStats.formationName` report the active formation.
 - Context loss abandons everything; restore re-compiles, re-uploads shaders in the active formation's mode, re-seeds it, and re-verifies float targets.
 
 ### Fallback behaviour
 
-- `?nofloat` → analytic formation-lite per formation (Jin reproduces its geometry; **Claudio reproduces its nested-orbit geometry** — capture `r251-claudio-analytic-1440.png`; **Victor reproduces the dial** — capture `r253-victor-t2-1440-nofloat.png`). Verified in-canvas; invalid ids → invisible sentinel + explicit panel error.
+- `?nofloat` → analytic formation-lite per formation (Jin reproduces its geometry; **Claudio reproduces its nested-orbit geometry** — capture `r251-claudio-analytic-1440.png`; **Victor reproduces the dial** — capture `r253-victor-t2-1440-nofloat.png`; **Lars reproduces the cable family** — capture `r254-lars-analytic-1440.png`). Verified in-canvas; invalid ids → invisible sentinel + explicit panel error.
 - `?notimer` → GPU timing hidden as "unavailable", 4 draws unchanged.
 - Reduced motion → Tier 0 CSS, no context (formation selector disabled).
-- Cross-formation glyph law, pulse envelopes and per-formation stiffness classes remain schema fields, not active behaviour, except Claudio's component partition and Victor's diamond glyph + lattice/orbiter stiffness classes (implemented).
+- Cross-formation glyph law, per-formation stiffness classes and the Lars pulse envelope are implemented as documented; other formations' paths are unchanged.
 
 ### Measured performance (this machine, same session, medians; GPU timer covers all 4 draws)
 
@@ -100,9 +114,26 @@ Jin remained within the ±10% median gate throughout (worst transient T3 cell ±
 
 Victor is below Jin in every measured cell and far under the T1/T2/T3 budgets (3 / 4 / 5 ms). A direct A/B against the pre-Victor commit (`ba5d328`) in the same session measured Jin T1/T2/T3 at 1.036 / 1.060 / 1.175 ms baseline versus 1.030 / 1.066 / 1.112 ms current (−0.6% / +0.6% / −5.3%), inside the ±10% gate. The absolute shift versus the earlier tables (~2.5×) affected every formation equally. CPU frame medians were ~24 ms across all cells under `?rafshim` (rAF-pacing limited, reported separately from the GPU timer). GPU p95 remains noisy; medians are the gate.
 
+### R2.5-4 measurements (this machine, same session, GPU timer over all 4 draws, medians; ANGLE D3D11, Radeon)
+
+| Cell | Lars | Jin (same-session anchor) | Claudio | Dragunov | Victor |
+|---|---|---|---|---|---|
+| 1440×900 T1 / T2 / T3 | 1.092 / 1.144 / 1.307 ms | 1.067 ms (T2) | 1.046 ms (T2) | 1.115 ms (T2) | 0.635 ms (T2) |
+| 1440×900 T2 (repeat) | 1.144 ms | 1.082 ms | — | — | — |
+| 768×1024 T2 / 390×844 T1 | not timed separately this stage (same draws as the timed cells) | — | — | — | — |
+
+Lars T1/T2/T3 are far under the T1/T2/T3 budgets (3 / 4 / 5 ms). A direct A/B against the pre-Lars commit (`de2bc9d`) in the same session and identical rafshim-iframe protocol measured Jin T1/T2/T3 at 1.045 / 1.070 / 1.118 ms baseline versus 1.048 / 1.082 / 1.131 ms current (+0.3% / +1.1% / +1.2%), inside the ±10% gate. The absolute shift versus the r253-era tables (~2.5×) affected every formation equally; this machine is currently in a slow-timer regime. CPU frame medians were ~17 ms across all cells under `?rafshim` (rAF-pacing limited, reported separately from the GPU timer). GPU p95 remains noisy; medians are the gate.
+
 ### Known limitations
 
-- Only Jin, Claudio, Dragunov and Victor are functional; Lars remains an inert schema entry.
+- All five formations are implemented and selectable; no formation is reserved in the build.
+- Lars Tier 1 keeps simplified forks + sockets (per the stage brief); at 390×844 the outer fork tips crop slightly at the frame edges and one fork may exit the portrait width.
+- Lars gold sockets read as white-hot points with a warm fringe rather than a saturated gold dot — deliberate restraint; gold dominates only the charge front at higher gain.
+- Lars Tier 3 sub-branches are intentionally fine and dimmer than the forks (detail, not density); they are subtle at small viewports and read best at desktop sizes.
+- Lars branch B (lower fork) is the longer fork by construction (spec: spans y = −0.30 → +1.18); the asymmetry is the design, not a bug.
+- The analytic fallback is grainier for Lars than GPGPU (no integration, sprite orientation aligned to the filament tangent); geometry and identity hold.
+- Lars's trunk adds a 0.30·y diagonal lean not literally present in the design sketch (which prescribes only fbm + sin + sway); it makes the documented "dominant diagonal energy path" readable at 1,100 particles. Documented deviation.
+- Lars's forks grow from zero divergence at the junction (they would otherwise float); the spec's fork positions, spans and the 0.20 fbm amplitude are unchanged. Documented deviation.
 - The crown halo is an azimuth-rotated vertical ellipse (not a literal y–z plane ring, which would be edge-on and invisible); documented deviation from the R2.5 sketch, same intent and restraint.
 - Inclination is ±22° (with radii 0.22 / 0.42 / 0.68), not the sketch's ±14° — the approved render at ±14° was illegible at 1,100 particles; the wider spread keeps planes visually distinct.
 - The star is comet-arc distributed (λ spread ±0.45) for directional readability, not a radial lamp — derived from the existing budget per the owner's approved amendment.

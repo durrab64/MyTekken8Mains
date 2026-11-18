@@ -21,6 +21,7 @@ import {
   TIER_CONFIG,
   buildInitialState,
   formationHome,
+  larsAtmospherePulse,
 } from './formations';
 import type { FormationDefinition, FormationDetail, FormationId } from './formations';
 import {
@@ -1320,7 +1321,9 @@ export class MotionLabEngine {
     );
     gl.uniform1f(
       this.atmosphereUniforms.uAtmosPulse,
-      activeDef.atmosphere.pulsePeriod,
+      activeDef.atmosphere.pulsePeriod > 0
+        ? larsAtmospherePulse(this.simTime)
+        : 0,
     );
     gl.bindVertexArray(this.fullscreenGeometry.vao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);

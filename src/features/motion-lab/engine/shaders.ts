@@ -51,18 +51,18 @@ float labFbmOctaves(vec2 p, int octaves) {
 
 /**
  * R2.5 formation interface: Jin (LAB_FORMATION_JIN), Claudio
- * (LAB_FORMATION_CLAUDIO), Dragunov (LAB_FORMATION_DRAGUNOV) and Victor
- * (LAB_FORMATION_VICTOR) are implemented; Lars is rejected by the
- * registry/UI/engine before it reaches the GPU. The sentinel branch parks
- * unsupported ids at the clamp ceiling with zeroed alpha instead of
- * fabricating geometry. Declares its own shared uniforms so every program
- * that includes it links cleanly.
+ * (LAB_FORMATION_CLAUDIO), Dragunov (LAB_FORMATION_DRAGUNOV), Victor
+ * (LAB_FORMATION_VICTOR) and Lars (LAB_FORMATION_LARS) are implemented. The
+ * sentinel branch parks unknown ids at the clamp ceiling with zeroed alpha
+ * instead of fabricating geometry. Declares its own shared uniforms so every
+ * program that includes it links cleanly.
  */
 const LAB_FORMATION_GLSL = `
 const int LAB_FORMATION_JIN = 0;
 const int LAB_FORMATION_CLAUDIO = 1;
 const int LAB_FORMATION_DRAGUNOV = 2;
 const int LAB_FORMATION_VICTOR = 3;
+const int LAB_FORMATION_LARS = 4;
 uniform int uFormation;
 uniform int uFormationDetail;   // 0 = T1 lite, 1 = T2 canonical, 2 = T3 high
 uniform float uFormationRadius;
@@ -427,6 +427,179 @@ vec3 victorHome(float lambda, float seed, float t) {
 }
 
 /**
+ * Lars component partition. Mirrors larsComponent() in formations.ts.
+ *   0 trunk / 1 fork A / 2 fork B / 3 sub A1 / 4 sub A2 / 5 sub B1 /
+ *   6 sub B2 / 7 socket A / 8 socket B.
+ * T1 keeps the trunk, both forks and the junction sockets (simplified
+ * trunk-and-fork silhouette, no sub-branches); T2/T3 follow the approved
+ * allocation below. No extra allocation.
+ */
+float larsComponent(float seed) {
+  if (uFormationDetail == 0) {
+    // Tier 1 — simplified but recognisable trunk-and-fork silhouette:
+    // trunk plus both forks and junction sockets; no sub-branches.
+    if (seed < 0.72) return 0.0;
+    if (seed < 0.84) return 1.0;
+    if (seed < 0.96) return 2.0;
+    if (seed < 0.98) return 7.0;
+    return 8.0;
+  }
+  if (uFormationDetail == 2) {
+    if (seed < 0.54) return 0.0;
+    if (seed < 0.69) return 1.0;
+    if (seed < 0.84) return 2.0;
+    if (seed < 0.87) return 3.0;
+    if (seed < 0.90) return 4.0;
+    if (seed < 0.93) return 5.0;
+    if (seed < 0.96) return 6.0;
+    if (seed < 0.98) return 7.0;
+    return 8.0;
+  }
+  if (seed < 0.60) return 0.0;
+  if (seed < 0.78) return 1.0;
+  if (seed < 0.96) return 2.0;
+  if (seed < 0.98) return 7.0;
+  return 8.0;
+}
+
+/** 1D value noise over hash11; mirrors larsNoise1() in formations.ts. */
+float larsNoise1(float x) {
+  float i = floor(x);
+  float f = fract(x);
+  float u = f * f * (3.0 - 2.0 * f);
+  float a = labHash11(i);
+  float b = labHash11(i + 1.0);
+  return mix(a, b, u);
+}
+
+/** Two-octave 1D fbm in [0,1]; mirrors larsFbm1() in formations.ts. */
+float larsFbm1(float x) {
+  return 0.68 * larsNoise1(x) + 0.32 * larsNoise1(x * 2.03 + 19.7);
+}
+
+/**
+ * Trunk centreline: 0.30*signed fbm(s*2.6 + t*0.8) + 0.16*sin(s*4.3 + t*3.1)
+ * + 0.05*sway. The lab's fbm is 0..1, so the fbm term is mapped to -1..1.
+ */
+float larsTrunkX(float y, float t) {
+  float fbm = larsFbm1(y * 2.6 + t * 0.8);
+  float signedFbm = 2.0 * fbm - 1.0;
+  float wave = sin(y * 4.3 + t * 3.1);
+  float sway = sin(t * 0.3 + 0.7);
+  // A restrained 0.30*y diagonal lean makes the documented "dominant
+  // diagonal energy path" readable at 1,100 particles.
+  return 0.30 * signedFbm + 0.16 * wave + 0.05 * sway + 0.30 * y;
+}
+
+float larsBranchY(float f, float side) {
+  float start = side > 0.0 ? 0.35 : -0.30;
+  return mix(start, 1.18, f);
+}
+
+/** Fork centreline: starts at the trunk junction and follows its own fbm. */
+float larsBranchX(float f, float side, float t) {
+  float y = larsBranchY(f, side);
+  float startY = side > 0.0 ? 0.35 : -0.30;
+  float anchorX = larsTrunkX(startY, t);
+  float wig = larsFbm1(y * 3.6 + t * 1.2 + side * 4.7) * 2.0 - 1.0;
+  // Divergence starts at zero so the fork's first particles sit inside the
+  // trunk (a junction, not a floating line); the fbm wiggle is also weighted
+  // by f so the root stays anchored.
+  float divergence = side * 0.70 * f;
+  float flick = side * 0.12 * smoothstep(0.82, 1.0, f);
+  return anchorX + divergence + flick + 0.20 * wig * f;
+}
+
+/** Tier 3 sub-branch: a short filament leaving the parent fork outward. */
+vec2 larsSubBranch(float f, float side, float parentF, float endY,
+                   float spread, float t) {
+  float parentY = larsBranchY(parentF, side);
+  float parentX = larsBranchX(parentF, side, t);
+  float y = mix(parentY, endY, f);
+  float wig = larsFbm1(y * 4.8 + t * 1.5 + side * 9.1) * 2.0 - 1.0;
+  float x = parentX + side * (0.05 + spread * f) + 0.16 * wig;
+  return vec2(x, y);
+}
+
+/**
+ * Bolt Filament: one dominant directional trunk (two interleaved strands),
+ * two distinct forks, gold junction sockets and optional Tier 3 sub-branches.
+ * The charge pulse is a shading envelope, so it never perturbs the spring.
+ */
+vec3 larsHome(float lambda, float seed, float t, float filament) {
+  float comp = larsComponent(seed);
+  float strand = mod(filament, 2.0);
+  float side = strand * 2.0 - 1.0;
+  float microX = (labHash11(seed * 31.7 + 5.3) - 0.5) * 0.012;
+  float microY = (labHash11(seed * 47.1 + 7.9) - 0.5) * 0.010;
+  float microZ = (labHash11(seed * 23.3 + 3.7) - 0.5) * 0.012;
+  float shimmer = 0.02 * sin(t * 8.7 + seed * LAB_TAU + strand * 2.1);
+
+  if (comp < 0.5) {
+    float y = mix(-1.18, 1.18, lambda) + microY * 0.5;
+    float fbmZ = larsFbm1(y * 1.3 + t * 0.5);
+    return vec3(larsTrunkX(y, t) + side * 0.035 + microX + shimmer,
+                y,
+                side * 0.045 + (2.0 * fbmZ - 1.0) * 0.05 + microZ);
+  }
+
+  if (comp < 2.5) {
+    float branchSide = comp < 1.5 ? 1.0 : -1.0;
+    float y = larsBranchY(lambda, branchSide);
+    float fbmZ = larsFbm1(y * 1.7 + t * 0.6 + branchSide * 3.3);
+    return vec3(larsBranchX(lambda, branchSide, t) + branchSide * 0.035
+                + microX + shimmer * 0.7,
+                y,
+                side * 0.045 + (2.0 * fbmZ - 1.0) * 0.04 + microZ);
+  }
+
+  if (comp < 6.5) {
+    float subSide = comp < 4.5 ? 1.0 : -1.0;
+    float parentF = 0.22;
+    float endY = 0.96;
+    float spread = 0.42;
+    if (comp > 3.5 && comp < 4.5) {
+      parentF = 0.52; endY = 1.12; spread = 0.30;
+    } else if (comp > 4.5 && comp < 5.5) {
+      parentF = 0.18; endY = 0.88; spread = 0.40;
+    } else if (comp > 5.5) {
+      parentF = 0.48; endY = 1.06; spread = 0.30;
+    }
+    vec2 p = larsSubBranch(lambda, subSide, parentF, endY, spread, t);
+    return vec3(p.x + microX + shimmer * 0.6,
+                p.y,
+                subSide * 0.03 + microZ);
+  }
+
+  // Junction sockets: persistent bright points at the two fork origins,
+  // nudged toward the camera so the gold glint reads against the blue cable.
+  float socketSide = comp < 7.5 ? 1.0 : -1.0;
+  float socketY = comp < 7.5 ? 0.35 : -0.30;
+  return vec3(larsTrunkX(socketY, t) + socketSide * 0.04 + microX * 1.4,
+              socketY + microY * 1.2,
+              0.12 + socketSide * 0.02 + microZ * 1.2);
+}
+
+/**
+ * Charge front: a brightness bump of width 0.18 in local lambda. There is no
+ * force term and no particle respawn; the cable keeps its silhouette.
+ */
+float larsPulseFront(float localS, float t) {
+  float phase = fract(t / 2.2 - localS);
+  float d = min(phase, 1.0 - phase);
+  return 1.0 - smoothstep(0.0, 0.18, d);
+}
+
+/** Long electric streaks; trunk strands read slightly larger than forks. */
+float larsSizeScale(float seed) {
+  float comp = larsComponent(seed);
+  if (comp > 6.5) return 1.05;
+  if (comp < 0.5) return 1.22;
+  if (comp < 2.5) return 1.06;
+  return 0.90;
+}
+
+/**
  * Formation dispatcher. Unknown ids park particles at the clamp ceiling;
  * sprites are alpha-discarded via formationVisibility(). Never fabricates
  * geometry for an unimplemented formation.
@@ -444,13 +617,17 @@ vec3 formationHome(float lambda, float seed, float filament, float t) {
   if (uFormation == LAB_FORMATION_VICTOR) {
     return victorHome(lambda, seed, t);
   }
+  if (uFormation == LAB_FORMATION_LARS) {
+    return larsHome(lambda, seed, t, filament);
+  }
   return vec3(0.0, 1.45, 0.0);
 }
 
 /** 1.0 when the active formation is implemented. */
 float formationVisibility() {
   return (uFormation == LAB_FORMATION_JIN || uFormation == LAB_FORMATION_CLAUDIO
-       || uFormation == LAB_FORMATION_DRAGUNOV || uFormation == LAB_FORMATION_VICTOR)
+       || uFormation == LAB_FORMATION_DRAGUNOV || uFormation == LAB_FORMATION_VICTOR
+       || uFormation == LAB_FORMATION_LARS)
     ? 1.0
     : 0.0;
 }
@@ -478,9 +655,9 @@ uniform float uAspect;
 uniform vec3 uDeep;
 uniform vec3 uFog;
 uniform vec3 uGlow;
-// R2.5 formation atmosphere interface. Jin (0), Claudio (1), Dragunov (2) and
-// Victor (3) are implemented; mode 4 (Lars) is reserved and intentionally
-// renders the neutral backplate.
+// R2.5 formation atmosphere interface. Jin (0), Claudio (1), Dragunov (2),
+// Victor (3) and Lars (4) are implemented. Unknown modes render only the
+// neutral backplate.
 uniform int uAtmosMode;
 uniform vec2 uAtmosAnchor;
 uniform float uAtmosBand;
@@ -539,6 +716,23 @@ void main() {
     color += uGlow * (lampCore + lampHalo);
     color += vec3(0.55, 0.12, 0.45) * fringe;
     color += vec3(0.36, 0.30, 0.52) * datum;
+  } else if (uAtmosMode == 4) {
+    // Lars — Bolt Filament: storm-grey diagonal void, one key that travels
+    // root-to-tip with the charge pulse, and a narrow arrival micro-lift.
+    // The pulse term is uGlow * 0.052 at peak — below the 8% luminance cap.
+    float pulsePhase = fract(uTime / 2.2);
+    vec2 keyPos = vec2(0.20 * sin(pulsePhase * LAB_TAU * 1.2),
+                       mix(-0.95, 0.95, pulsePhase));
+    vec2 kd = p - keyPos;
+    vec2 kd2 = kd * vec2(3.4, 2.1);
+    float key = exp(-dot(kd2, kd2)) * 0.070;
+    float diagonal = labFbm2(vec2((p.x * 0.72 - p.y * 0.55) * 2.6 + uTime * 0.025,
+                                  p.y * 1.3 - uTime * 0.02));
+    float bands = smoothstep(0.48, 0.82, diagonal) * 0.032;
+    float path = exp(-pow((p.y * 0.86 - p.x * 0.50 - 0.18) / 0.62, 2.0)) * 0.034;
+    color = mix(uDeep * 0.38, uFog * 0.16, smoothstep(0.05, 0.95, vUv.y));
+    color += uGlow * (key + bands + path);
+    color += uGlow * uAtmosPulse * 0.052;
   } else {
     // Neutral backplate only. Reserved modes must not exist yet.
   }
@@ -602,9 +796,10 @@ void main() {
   float filament = mod(float(index), uFilaments);
   vec3 home = formationHome(lambda, seed, filament, uTime);
 
-  // Victor packs two stiffness classes into the existing seed byte range:
-  // the lattice snaps back hard (3.2 / 2.6 of the panel spring), orbiters
-  // ride softer (2.2 / 2.6) with normal curl. All other formations multiply
+  // Victor and Lars pack stiffness classes into the existing seed byte:
+  // Victor's lattice snaps back hard (3.2 / 2.6) and its orbiters ride softer
+  // (2.2 / 2.6); Lars' trunk/sockets are cable-stiff (3.0 / 2.6) and its
+  // forks/subbranches sway freely (2.2 / 2.6). All other formations multiply
   // by exactly 1.0.
   float springMul = 1.0;
   float curlMul = 1.0;
@@ -613,6 +808,10 @@ void main() {
     bool orbiter = victorComp > 3.5 && victorComp < 4.5;
     springMul = orbiter ? 0.8461538 : 1.2307692;
     curlMul = orbiter ? 2.5 : 1.0;
+  } else if (uFormation == LAB_FORMATION_LARS) {
+    float larsComp = larsComponent(seed);
+    bool branch = larsComp > 0.5 && larsComp < 6.5;
+    springMul = branch ? 0.8461538 : 1.1538462;
   }
 
   vec3 pos = P.xyz;
@@ -681,20 +880,39 @@ out vec4 outColor;
 
 void main() {
   float r2 = dot(vQuad, vQuad);
-  if (vGlyph > 0.5) {
+  float soft;
+  float core;
+  vec3 coreTint;
+  if (vGlyph > 1.5) {
+    // Lars junction socket: a restrained four-point gold glint inside the
+    // existing quad. Other formations never set this path.
+    if (r2 > 1.0) {
+      discard;
+    }
+    float arms = max(exp(-abs(vQuad.x) * 4.6 - abs(vQuad.y) * 2.1),
+                     exp(-abs(vQuad.y) * 4.6 - abs(vQuad.x) * 2.1));
+    soft = max(arms * 0.80, exp(-r2 * 2.8));
+    core = exp(-r2 * 8.0) * 0.92;
+    coreTint = vec3(1.0, 0.78, 0.28);
+  } else if (vGlyph > 0.5) {
     // Rotated-square (diamond) contour for Victor's lattice glyphs.
     float d = abs(vQuad.x) + abs(vQuad.y);
     if (d > 1.0) {
       discard;
     }
     r2 = d * d;
-  } else if (r2 > 1.0) {
-    discard;
+    soft = exp(-r2 * 2.6);
+    core = exp(-r2 * 12.0);
+    coreTint = vec3(0.68, 0.94, 1.0);
+  } else {
+    if (r2 > 1.0) {
+      discard;
+    }
+    soft = exp(-r2 * 3.6);
+    core = exp(-r2 * 17.0);
+    coreTint = vec3(1.0, 0.91, 0.76);
   }
 
-  float soft = exp(-r2 * (vGlyph > 0.5 ? 2.6 : 3.6));
-  float core = exp(-r2 * (vGlyph > 0.5 ? 12.0 : 17.0));
-  vec3 coreTint = vGlyph > 0.5 ? vec3(0.68, 0.94, 1.0) : vec3(1.0, 0.91, 0.76);
   vec3 color = vColor + coreTint * core * (0.35 + 1.05 * vHard);
 
   float luminance = dot(color, vec3(0.299, 0.587, 0.114));
@@ -750,6 +968,7 @@ void main() {
   float comp = -1.0;
   float gain = 1.0;
   float compAlpha = 1.0;
+  float larsPulse = 0.0;
   if (uFormation == LAB_FORMATION_JIN) {
     spark = step(0.88, seed);
   } else if (uFormation == LAB_FORMATION_CLAUDIO) {
@@ -776,6 +995,17 @@ void main() {
     float dissolve = 1.0 - smoothstep(0.82, 1.0, dU);
     compAlpha *= spawnFade * dissolve;
     gain *= 0.82 + 0.35 * dissolve;
+  } else if (uFormation == LAB_FORMATION_LARS) {
+    // Lars — one cable: trunk and sockets read bright, forks a touch cooler,
+    // sub-branches are the finest detail. Gold is reserved for the sockets
+    // and for the travelling charge front.
+    comp = larsComponent(seed);
+    spark = comp > 6.5 ? 1.0
+          : (labHash11(seed * 91.7 + 3.1) > 0.97 ? 1.0 : 0.0);
+    if (comp < 0.5) { gain = 1.35; compAlpha = 1.15; }
+    else if (comp < 2.5) { gain = 1.18; compAlpha = 1.02; }
+    else if (comp < 6.5) { gain = 1.02; compAlpha = 0.90; }
+    else { gain = 2.00; compAlpha = 2.15; }
   } else {
     // Victor — mechanical lattice. The outer rim flares on each clunk; the
     // inner ring stays dim so the luminance ladder reads rim-over-core at
@@ -823,18 +1053,52 @@ void main() {
     }
   }
 
+  // Lars charge pulse — root-to-tip on the trunk, junction-to-tip on each
+  // fork. Brightness only; the spring never sees it. T3 alternates one
+  // socket pop per pulse, so flashes stay at 0.455 Hz and below.
+  if (uFormation == LAB_FORMATION_LARS) {
+    float localS = (comp < 0.5 || comp > 6.5)
+      ? clamp((pos.y + 1.18) / 2.36, 0.0, 1.0)
+      : lambda;
+    larsPulse = larsPulseFront(localS, uTime);
+    gain *= 1.0 + 1.25 * larsPulse;
+    compAlpha *= 1.0 + 0.40 * larsPulse;
+    if (comp > 6.5) {
+      if (uFormationDetail == 2) {
+        float pulseIndex = floor(uTime / 2.2);
+        float chosen = mod(pulseIndex, 2.0);
+        float socketIndex = comp > 7.5 ? 1.0 : 0.0;
+        if (abs(chosen - socketIndex) < 0.5) {
+          float pop = larsPulse
+                    * (0.55 + 0.45 * labHash11(pulseIndex * 7.3 + 1.7));
+          gain *= 1.0 + 1.55 * pop;
+          compAlpha *= 1.0 + 0.75 * pop;
+        }
+      }
+      // Per-junction alpha cap: additive stacking at a fork socket may not
+      // blow out even at the pop peak.
+      compAlpha = min(compAlpha, 2.30);
+    }
+  }
+
   vec2 screenVel = vec2(vel.x / uAspect, vel.y);
   float speed = length(screenVel);
   vec2 dir = speed > 1e-4 ? screenVel / speed : vec2(0.0, 1.0);
   vec2 perp = vec2(-dir.y, dir.x);
   float stretch = uStretchBase + min(speed, 2.5) * uStretchSpeed + spark * 0.55;
-  float sizeScale = uFormation == LAB_FORMATION_JIN
-    ? 1.0
-    : (uFormation == LAB_FORMATION_CLAUDIO
-        ? claudioSizeScale(seed)
-        : (uFormation == LAB_FORMATION_DRAGUNOV
-            ? dragunovSizeScale(seed)
-            : victorSizeScale(seed)));
+  if (uFormation == LAB_FORMATION_LARS && comp > 6.5) {
+    stretch = 0.90; // sockets are point glints, not streaks
+  }
+  float sizeScale = 1.0;
+  if (uFormation == LAB_FORMATION_CLAUDIO) {
+    sizeScale = claudioSizeScale(seed);
+  } else if (uFormation == LAB_FORMATION_DRAGUNOV) {
+    sizeScale = dragunovSizeScale(seed);
+  } else if (uFormation == LAB_FORMATION_VICTOR) {
+    sizeScale = victorSizeScale(seed);
+  } else if (uFormation == LAB_FORMATION_LARS) {
+    sizeScale = larsSizeScale(seed);
+  }
   float basePx = mix(1.7, 4.0, labHash11(seed * 91.7 + 3.1)) * uSize * uDpr
                * (0.82 + 0.46 * depth) * (1.0 - spark * 0.18) * sizeScale;
 
@@ -844,7 +1108,8 @@ void main() {
   gl_Position = vec4(clip + offset, 0.0, 1.0);
 
   vQuad = aCorner;
-  vGlyph = uFormation == LAB_FORMATION_VICTOR ? 1.0 : 0.0;
+  vGlyph = uFormation == LAB_FORMATION_VICTOR ? 1.0
+         : (uFormation == LAB_FORMATION_LARS && comp > 6.5 ? 2.0 : 0.0);
   vec3 color;
   if (uFormation == LAB_FORMATION_JIN) {
     float heat = clamp(0.35 + lambda * 0.45 + labHash11(seed * 37.0) * 0.2, 0.0, 1.0);
@@ -862,6 +1127,15 @@ void main() {
     else if (comp < 0.5) color = mix(uTintA, uFog, 0.55);
     else if (comp < 1.5) color = uTintA;
     else color = mix(uTintA, uTintB, 0.32);
+  } else if (uFormation == LAB_FORMATION_LARS) {
+    // Lars — blue-white cable with a gold charge front; sockets are the only
+    // persistent gold points. The pulse mix is capped so junctions cannot
+    // stack into a white blob.
+    if (comp < 0.5) color = mix(uTintA, uTintB, 0.16 + 0.30 * larsPulse);
+    else if (comp < 2.5) color = mix(uTintA, uTintB, 0.10 + 0.35 * larsPulse);
+    else if (comp < 6.5) color = mix(uTintA, uTintB, 0.08 + 0.30 * larsPulse);
+    else color = mix(uTintB, vec3(1.0), 0.14 + 0.16 * larsPulse);
+    color = mix(color, vec3(1.0), larsPulse * (comp > 6.5 ? 0.28 : 0.22));
   } else {
     // Victor — violet rim against a cyan core; spokes split the two.
     if (comp < 0.5) color = uTintA;
@@ -879,7 +1153,7 @@ void main() {
          * (0.78 + 0.50 * spark)
          * compAlpha
          * formationVisibility();
-  vHard = spark;
+  vHard = max(spark, larsPulse * 0.9);
 }
 `;
 
@@ -917,7 +1191,9 @@ ${LAB_FORMATION_GLSL}
 
 void main() {
   float fi = float(gl_InstanceID);
-  float streams = uFormation == LAB_FORMATION_JIN ? uFilaments : 1.0;
+  float streams = uFormation == LAB_FORMATION_JIN
+    ? uFilaments
+    : (uFormation == LAB_FORMATION_LARS ? 2.0 : 1.0);
   float filament = mod(fi, streams);
   float rows = max(1.0, ceil(float(uCount) / streams));
   float edge = mod(fi, streams);
@@ -946,6 +1222,7 @@ void main() {
   float comp = -1.0;
   float gain = 1.0;
   float compAlpha = 1.0;
+  float larsPulse = 0.0;
   if (uFormation == LAB_FORMATION_JIN) {
     spark = step(0.88, seed);
   } else if (uFormation == LAB_FORMATION_CLAUDIO) {
@@ -972,6 +1249,17 @@ void main() {
     float dissolve = 1.0 - smoothstep(0.82, 1.0, dU);
     compAlpha *= spawnFade * dissolve;
     gain *= 0.82 + 0.35 * dissolve;
+  } else if (uFormation == LAB_FORMATION_LARS) {
+    // Lars — one cable: trunk and sockets read bright, forks a touch cooler,
+    // sub-branches are the finest detail. Gold is reserved for the sockets
+    // and for the travelling charge front.
+    comp = larsComponent(seed);
+    spark = comp > 6.5 ? 1.0
+          : (labHash11(seed * 91.7 + 3.1) > 0.97 ? 1.0 : 0.0);
+    if (comp < 0.5) { gain = 1.35; compAlpha = 1.15; }
+    else if (comp < 2.5) { gain = 1.18; compAlpha = 1.02; }
+    else if (comp < 6.5) { gain = 1.02; compAlpha = 0.90; }
+    else { gain = 2.00; compAlpha = 2.15; }
   } else {
     // Victor — mechanical lattice. The outer rim flares on each clunk; the
     // inner ring stays dim so the luminance ladder reads rim-over-core at
@@ -1019,18 +1307,67 @@ void main() {
     }
   }
 
+  // Lars charge pulse — root-to-tip on the trunk, junction-to-tip on each
+  // fork. Brightness only; the spring never sees it. T3 alternates one
+  // socket pop per pulse, so flashes stay at 0.455 Hz and below.
+  if (uFormation == LAB_FORMATION_LARS) {
+    float localS = (comp < 0.5 || comp > 6.5)
+      ? clamp((pos.y + 1.18) / 2.36, 0.0, 1.0)
+      : lambda;
+    larsPulse = larsPulseFront(localS, uTime);
+    gain *= 1.0 + 1.25 * larsPulse;
+    compAlpha *= 1.0 + 0.40 * larsPulse;
+    if (comp > 6.5) {
+      if (uFormationDetail == 2) {
+        float pulseIndex = floor(uTime / 2.2);
+        float chosen = mod(pulseIndex, 2.0);
+        float socketIndex = comp > 7.5 ? 1.0 : 0.0;
+        if (abs(chosen - socketIndex) < 0.5) {
+          float pop = larsPulse
+                    * (0.55 + 0.45 * labHash11(pulseIndex * 7.3 + 1.7));
+          gain *= 1.0 + 1.55 * pop;
+          compAlpha *= 1.0 + 0.75 * pop;
+        }
+      }
+      // Per-junction alpha cap: additive stacking at a fork socket may not
+      // blow out even at the pop peak.
+      compAlpha = min(compAlpha, 2.30);
+    }
+  }
+
   vec2 screenVel = vec2(vel.x / uAspect, vel.y);
   float speed = length(screenVel);
   vec2 screenDir = speed > 1e-4 ? screenVel / speed : vec2(0.0, 1.0);
+  // Lars rests almost still, so its velocity is noise-like and the streak
+  // orientation degenerates; align the sprite with the filament tangent
+  // instead. Other formations keep their velocity-driven orientation.
+  if (uFormation == LAB_FORMATION_LARS) {
+    float epsilon = 0.006;
+    vec3 h0 = formationHome(clamp(lambda - epsilon, 0.0, 1.0), seed,
+                            filament, uTime);
+    vec3 h1 = formationHome(clamp(lambda + epsilon, 0.0, 1.0), seed,
+                            filament, uTime);
+    vec2 spread = vec2((h1.x - h0.x) / uAspect, h1.y - h0.y);
+    float len2 = dot(spread, spread);
+    if (len2 > 1e-8) {
+      screenDir = spread * inversesqrt(len2);
+    }
+  }
   vec2 perp = vec2(-screenDir.y, screenDir.x);
   float stretch = uStretchBase + min(speed, 2.5) * uStretchSpeed + spark * 0.55;
-  float sizeScale = uFormation == LAB_FORMATION_JIN
-    ? 1.0
-    : (uFormation == LAB_FORMATION_CLAUDIO
-        ? claudioSizeScale(seed)
-        : (uFormation == LAB_FORMATION_DRAGUNOV
-            ? dragunovSizeScale(seed)
-            : victorSizeScale(seed)));
+  if (uFormation == LAB_FORMATION_LARS && comp > 6.5) {
+    stretch = 0.90; // sockets are point glints, not streaks
+  }
+  float sizeScale = 1.0;
+  if (uFormation == LAB_FORMATION_CLAUDIO) {
+    sizeScale = claudioSizeScale(seed);
+  } else if (uFormation == LAB_FORMATION_DRAGUNOV) {
+    sizeScale = dragunovSizeScale(seed);
+  } else if (uFormation == LAB_FORMATION_VICTOR) {
+    sizeScale = victorSizeScale(seed);
+  } else if (uFormation == LAB_FORMATION_LARS) {
+    sizeScale = larsSizeScale(seed);
+  }
   float basePx = mix(1.7, 4.0, labHash11(seed * 91.7 + 3.1)) * uSize * uDpr
                * (0.82 + 0.46 * depth) * (1.0 - spark * 0.18) * sizeScale;
 
@@ -1040,7 +1377,8 @@ void main() {
   gl_Position = vec4(clip + offset, 0.0, 1.0);
 
   vQuad = aCorner;
-  vGlyph = uFormation == LAB_FORMATION_VICTOR ? 1.0 : 0.0;
+  vGlyph = uFormation == LAB_FORMATION_VICTOR ? 1.0
+         : (uFormation == LAB_FORMATION_LARS && comp > 6.5 ? 2.0 : 0.0);
   vec3 color;
   if (uFormation == LAB_FORMATION_JIN) {
     float heat = clamp(0.35 + lambda * 0.45 + labHash11(seed * 37.0) * 0.2, 0.0, 1.0);
@@ -1058,6 +1396,15 @@ void main() {
     else if (comp < 0.5) color = mix(uTintA, uFog, 0.55);
     else if (comp < 1.5) color = uTintA;
     else color = mix(uTintA, uTintB, 0.32);
+  } else if (uFormation == LAB_FORMATION_LARS) {
+    // Lars — blue-white cable with a gold charge front; sockets are the only
+    // persistent gold points. The pulse mix is capped so junctions cannot
+    // stack into a white blob.
+    if (comp < 0.5) color = mix(uTintA, uTintB, 0.16 + 0.30 * larsPulse);
+    else if (comp < 2.5) color = mix(uTintA, uTintB, 0.10 + 0.35 * larsPulse);
+    else if (comp < 6.5) color = mix(uTintA, uTintB, 0.08 + 0.30 * larsPulse);
+    else color = mix(uTintB, vec3(1.0), 0.14 + 0.16 * larsPulse);
+    color = mix(color, vec3(1.0), larsPulse * (comp > 6.5 ? 0.28 : 0.22));
   } else {
     // Victor — violet rim against a cyan core; spokes split the two.
     if (comp < 0.5) color = uTintA;
@@ -1075,6 +1422,6 @@ void main() {
          * (0.78 + 0.50 * spark)
          * compAlpha
          * formationVisibility();
-  vHard = spark;
+  vHard = max(spark, larsPulse * 0.9);
 }
 `;

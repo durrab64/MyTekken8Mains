@@ -33,7 +33,7 @@ const FORMATION_LEDE: Record<FormationId, string> = {
   claudio: 'Nested inclined orbits around a luminous focal star, held by a spring field. Move through the planes to displace them; release and the orbit settles back into its hierarchy.',
   dragunov: 'Three depth-layered sheets of frozen vertical columns, dissolving and re-forming as they fall. Move through the curtain to break the columns; release and they close again.',
   victor: 'A quantised mechanical dial: a violet outer rim clunks in 30° steps while the cyan inner ring counter-rotates. Move through the lattice and it resists, then snaps back.',
-  lars: 'A directional energy trunk with branching forks and a travelling charge pulse. Reserved for a later stage.',
+  lars: 'A directional energy trunk with two branching forks, gold junction sockets and a charge pulse that travels from root to tip. Push the cable and it bends, then snaps back.',
 };
 
 interface ParamControl {
@@ -1228,7 +1228,10 @@ export default function MotionLab() {
           Isolated experiment · no production renderer, navigation,
           artwork or content is loaded
         </span>
-        <span>Stage A · Jin only · {GPGPU_BYTES.toLocaleString('en-US')} B GPGPU state</span>
+        <span>
+          R2.5 · five formations · {GPGPU_BYTES.toLocaleString('en-US')} B
+          GPGPU state
+        </span>
       </footer>
     </div>
   );
