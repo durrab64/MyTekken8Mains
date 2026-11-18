@@ -60,6 +60,7 @@ float labFbmOctaves(vec2 p, int octaves) {
 const LAB_FORMATION_GLSL = `
 const int LAB_FORMATION_JIN = 0;
 const int LAB_FORMATION_CLAUDIO = 1;
+const int LAB_FORMATION_DRAGUNOV = 2;
 uniform int uFormation;
 uniform int uFormationDetail;   // 0 = T1 lite, 1 = T2 canonical, 2 = T3 high
 uniform float uFormationRadius;
@@ -146,6 +147,11 @@ float claudioSizeScale(float seed) {
   return claudioComponent(seed) < 0.5 ? 0.80 : 0.78;
 }
 
+/** Chips read tight; crystal glints a touch smaller and harder. */
+float dragunovSizeScale(float seed) {
+  return labHash11(seed * 91.7 + 3.1) > 0.94 ? 0.95 : 1.15;
+}
+
 const float CLAUDIO_SIN_INC_A = 0.3746066;   // sin(+22Â°)
 const float CLAUDIO_COS_INC_A = 0.9271839;   // cos(+22Â°)
 const float CLAUDIO_SIN_INC_C = -0.3746066;  // sin(-22Â°)
@@ -212,6 +218,83 @@ vec3 claudioHome(float lambda, float seed, float t) {
 }
 
 /**
+ * Dragunov component partition. 0 far sheet, 1 mid, 2 near. T1 is the mid
+ * sheet only; T3 uses finer 9-column subdivision + drifting fragments.
+ */
+float dragunovSheetOf(float seed) {
+  if (uFormationDetail == 0) return 1.0;
+  if (seed < 0.36) return 0.0;
+  if (seed < 0.68) return 1.0;
+  return 2.0;
+}
+
+float dragunovColsFor(float sheet) {
+  if (uFormationDetail == 2) return 9.0;
+  if (sheet < 0.5) return 6.0;
+  return 7.0;
+}
+
+vec2 dragunovColumnBounds(float sheet) {
+  if (sheet < 0.5) return vec2(-1.15, 1.15);
+  if (sheet < 1.5) return vec2(-1.25, 1.25);
+  return vec2(-1.35, 1.35);
+}
+
+/** Stable per-particle column index (0..cols-1). */
+float dragunovColumnIndex(float seed, float sheet) {
+  return floor(labHash11(seed * 13.7 + sheet * 91.0 + 7.0)
+               * dragunovColsFor(sheet));
+}
+
+/** Stable per-column identity: jitter and lengthMul. */
+float dragunovColumnHash(float sheet, float index) {
+  return labHash11(index * 3.71 + sheet * 17.3 + 3.1);
+}
+
+float dragunovColumnLengthMul(float sheet, float index) {
+  return 0.78 + 0.22 * dragunovColumnHash(sheet, index);
+}
+
+/**
+ * Frost Curtain: three depth-layered warped sheets of vertical columns.
+ * Particles cycle within columns top to bottom with per-particle phase
+ * spread; sheets warp gently; bottom dissolves per column; a slow crystal
+ * pulse travels down one column at a time. Restrained, structured, frozen —
+ * never a snowstorm.
+ */
+vec3 dragunovHome(float lambda, float seed, float t) {
+  float comp = uFormationDetail == 0 ? 1.0 : dragunovSheetOf(seed);
+  float cols = dragunovColsFor(comp);
+  vec2 span = dragunovColumnBounds(comp);
+  float index = dragunovColumnIndex(seed, comp);
+  float colHash = dragunovColumnHash(comp, index);
+
+  float base = mix(span.x, span.y, (index + 0.5) / cols);
+  float x = base + (colHash - 0.5) * 0.06;
+  float gauss = (labHash11(seed * 29.1 + 2.4) + labHash11(seed * 41.7 + 3.1)
+               + labHash11(seed * 53.3 + 5.9) - 1.5) * 2.0;
+  x += gauss * (0.022 + comp * 0.005);
+  x += 0.025 * sin(t * 0.55 + comp * 2.3 + x * 0.6);
+
+  float warp = 0.055 * sin(x * 2.3 + t * 0.25 + comp * 2.1)
+             + 0.030 * sin(x * 4.9 - t * 0.4 + comp);
+
+  if (uFormationDetail == 2 && labHash11(seed * 57.7 + 13.1) > 0.92) {
+    x += (labHash11(seed * 41.3 + 8.8) - 0.5) * 0.16;
+  }
+
+  float fallRate = 0.16 + 0.08 * labHash11(seed * 47.3 + 11.1);
+  float phase = labHash11(seed * 23.7 + 9.4);
+  // Linear downward fall. Particles fade at the extremes, so the respawn
+  // wrap is invisible to both the eye and the spring.
+  float u = fract(lambda + phase + t * fallRate * 0.5);
+  float y = mix(0.98, -1.08, u) + (labHash11(seed * 61.7 + 3.3) - 0.5) * 0.024;
+  float zSheet = (comp - 1.0) * 0.19;
+  float z = zSheet + warp * 0.55 + (labHash11(seed * 33.1 + 7.7) - 0.5) * 0.04;
+  return vec3(x, y, z);
+}
+
+/**
  * Formation dispatcher. Unknown ids park particles at the clamp ceiling;
  * sprites are alpha-discarded via formationVisibility(). Never fabricates
  * geometry for an unimplemented formation.
@@ -223,12 +306,16 @@ vec3 formationHome(float lambda, float seed, float filament, float t) {
   if (uFormation == LAB_FORMATION_CLAUDIO) {
     return claudioHome(lambda, seed, t);
   }
+  if (uFormation == LAB_FORMATION_DRAGUNOV) {
+    return dragunovHome(lambda, seed, t);
+  }
   return vec3(0.0, 1.45, 0.0);
 }
 
 /** 1.0 when the active formation is implemented. */
 float formationVisibility() {
-  return (uFormation == LAB_FORMATION_JIN || uFormation == LAB_FORMATION_CLAUDIO)
+  return (uFormation == LAB_FORMATION_JIN || uFormation == LAB_FORMATION_CLAUDIO
+       || uFormation == LAB_FORMATION_DRAGUNOV)
     ? 1.0
     : 0.0;
 }
@@ -294,6 +381,14 @@ void main() {
                * exp(-r2 * 1.0) * 0.025;
     color = mix(uDeep * 0.24, uFog * 0.115, smoothstep(0.05, 0.95, vUv.y));
     color += uGlow * (starCore + halo + cross + haze);
+  } else if (uAtmosMode == 2) {
+    // Dragunov — Frost Curtain: steel-cold slit at the base, vertical streak haze, no bloom.
+    float slit = exp(-pow((p.y + 0.72) * 4.4, 2.0)) * exp(-pow(p.x * 1.35, 2.0)) * 0.30;
+    float haze = labFbm2(vec2(p.x * 9.0, p.y * 0.9 - uTime * 0.022));
+    float streaks = smoothstep(0.55, 0.9, haze) * 0.09;
+    float core = exp(-dot(p - vec2(0.0, -0.55), p - vec2(0.0, -0.55)) * 3.2) * 0.12;
+    color = mix(uDeep * 0.30, uFog * 0.15, smoothstep(0.05, 0.95, vUv.y));
+    color += uGlow * (slit + core + streaks);
   } else {
     // Neutral backplate only. Reserved modes must not exist yet.
   }
@@ -445,6 +540,7 @@ layout(location = 0) in vec2 aCorner;
 uniform sampler2D uPosition;
 uniform sampler2D uVelocity;
 uniform int uSimSize;
+uniform float uTime;
 uniform vec2 uResolution;
 uniform float uAspect;
 uniform float uDpr;
@@ -483,7 +579,7 @@ void main() {
   float compAlpha = 1.0;
   if (uFormation == LAB_FORMATION_JIN) {
     spark = step(0.88, seed);
-  } else {
+  } else if (uFormation == LAB_FORMATION_CLAUDIO) {
     comp = claudioComponent(seed);
     spark = (comp < 0.5 || labHash11(seed * 91.7 + 3.1) > 0.94) ? 1.0 : 0.0;
     if (comp < 0.5) { gain = 2.0; compAlpha = 2.4; }
@@ -492,15 +588,53 @@ void main() {
     else if (comp < 3.5) { gain = 1.1; compAlpha = 1.4; }
     else if (comp < 4.5) { gain = 0.85; compAlpha = 1.0; }
     else { gain = 0.95; compAlpha = 1.4; }
+  } else {
+    comp = uFormationDetail == 0 ? 1.0 : dragunovSheetOf(seed);
+    spark = step(0.94, labHash11(seed * 91.7 + 3.1));
+    if (comp < 0.5) { gain = 1.10; compAlpha = 0.95; }
+    else if (comp < 1.5) { gain = 1.30; compAlpha = 1.25; }
+    else { gain = 1.45; compAlpha = 1.55; }
+    // Controlled, localized dissolution — fade in at the crown, fade out at the
+    // base; the respawn wrap is then invisible to both eye and spring.
+    float dFallRate = 0.16 + 0.08 * labHash11(seed * 47.3 + 11.1);
+    float dPhase = labHash11(seed * 23.7 + 9.4);
+    float dU = fract(lambda + dPhase + uTime * dFallRate * 0.5);
+    float spawnFade = smoothstep(0.0, 0.14, dU);
+    float dissolve = 1.0 - smoothstep(0.82, 1.0, dU);
+    compAlpha *= spawnFade * dissolve;
+    gain *= 0.82 + 0.35 * dissolve;
   }
   float depth = clamp(pos.z * 2.1 + 0.5, 0.0, 1.0);
+
+  // Crystal pulse — a single column fires a bright front down its length
+  // on a slow cadence. Composed before sprite sizing and shading.
+  if (uFormation == LAB_FORMATION_DRAGUNOV && uFormationDetail != 0) {
+    float period = uFormationDetail == 2 ? 1.3 : 1.8;
+    float n = floor(uTime / period);
+    float local = fract(uTime / period);
+    float pulsePhase = local * local * (3.0 - 2.0 * local);
+    float pulseY = mix(0.98, -1.08, pulsePhase);
+    float targetSheet = mod(n, 3.0);
+    if (abs(comp - targetSheet) < 0.5) {
+      float cols = dragunovColsFor(comp);
+      float targetCol = floor(mod(n * 3.71 + 1.3, cols));
+      if (abs(dragunovColumnIndex(seed, comp) - targetCol) < 0.5) {
+        float pulse = exp(-pow((pos.y - pulseY) * 5.0, 2.0));
+        gain *= 1.0 + pulse * 1.5;
+        compAlpha *= 1.0 + pulse * 1.1;
+        if (pulse > 0.25) spark = 1.0;
+      }
+    }
+  }
 
   vec2 screenVel = vec2(vel.x / uAspect, vel.y);
   float speed = length(screenVel);
   vec2 dir = speed > 1e-4 ? screenVel / speed : vec2(0.0, 1.0);
   vec2 perp = vec2(-dir.y, dir.x);
   float stretch = uStretchBase + min(speed, 2.5) * uStretchSpeed + spark * 0.55;
-  float sizeScale = uFormation == LAB_FORMATION_JIN ? 1.0 : claudioSizeScale(seed);
+  float sizeScale = uFormation == LAB_FORMATION_JIN
+    ? 1.0
+    : (uFormation == LAB_FORMATION_CLAUDIO ? claudioSizeScale(seed) : dragunovSizeScale(seed));
   float basePx = mix(1.7, 4.0, labHash11(seed * 91.7 + 3.1)) * uSize * uDpr
                * (0.82 + 0.46 * depth) * (1.0 - spark * 0.18) * sizeScale;
 
@@ -514,18 +648,19 @@ void main() {
   if (uFormation == LAB_FORMATION_JIN) {
     float heat = clamp(0.35 + lambda * 0.45 + labHash11(seed * 37.0) * 0.2, 0.0, 1.0);
     color = mix(uTintA, uTintB, clamp(heat * 0.8 + spark, 0.0, 1.0));
-  } else if (comp < 0.5) {
-    color = mix(uTintB, vec3(1.0), 0.32);
-  } else if (comp < 1.5) {
-    color = mix(uTintA, uTintB, 0.35);
-  } else if (comp < 2.5) {
-    color = uTintA;
-  } else if (comp < 3.5) {
-    color = mix(uTintA, uTintB, 0.65);
-  } else if (comp < 4.5) {
-    color = mix(uTintB, uFog, 0.30);
+  } else if (uFormation == LAB_FORMATION_CLAUDIO) {
+    if (comp < 0.5) color = mix(uTintB, vec3(1.0), 0.32);
+    else if (comp < 1.5) color = mix(uTintA, uTintB, 0.35);
+    else if (comp < 2.5) color = uTintA;
+    else if (comp < 3.5) color = mix(uTintA, uTintB, 0.65);
+    else if (comp < 4.5) color = mix(uTintB, uFog, 0.30);
+    else color = mix(uTintA, uTintB, 0.25);
   } else {
-    color = mix(uTintA, uTintB, 0.25);
+    // Dragunov — fog-drenched far sheet, steel mid, frost-tipped near.
+    if (spark > 0.5) color = mix(uTintB, vec3(1.0), 0.30);
+    else if (comp < 0.5) color = mix(uTintA, uFog, 0.55);
+    else if (comp < 1.5) color = uTintA;
+    else color = mix(uTintA, uTintB, 0.32);
   }
   color = mix(color, uFog, (1.0 - depth) * 0.34);
   vColor = color * (0.90 + 0.52 * depth) * gain;
@@ -602,7 +737,7 @@ void main() {
   float compAlpha = 1.0;
   if (uFormation == LAB_FORMATION_JIN) {
     spark = step(0.88, seed);
-  } else {
+  } else if (uFormation == LAB_FORMATION_CLAUDIO) {
     comp = claudioComponent(seed);
     spark = (comp < 0.5 || labHash11(seed * 91.7 + 3.1) > 0.94) ? 1.0 : 0.0;
     if (comp < 0.5) { gain = 2.0; compAlpha = 2.4; }
@@ -611,15 +746,53 @@ void main() {
     else if (comp < 3.5) { gain = 1.1; compAlpha = 1.4; }
     else if (comp < 4.5) { gain = 0.85; compAlpha = 1.0; }
     else { gain = 0.95; compAlpha = 1.4; }
+  } else {
+    comp = uFormationDetail == 0 ? 1.0 : dragunovSheetOf(seed);
+    spark = step(0.94, labHash11(seed * 91.7 + 3.1));
+    if (comp < 0.5) { gain = 1.10; compAlpha = 0.95; }
+    else if (comp < 1.5) { gain = 1.30; compAlpha = 1.25; }
+    else { gain = 1.45; compAlpha = 1.55; }
+    // Controlled, localized dissolution — fade in at the crown, fade out at the
+    // base; the respawn wrap is then invisible to both eye and spring.
+    float dFallRate = 0.16 + 0.08 * labHash11(seed * 47.3 + 11.1);
+    float dPhase = labHash11(seed * 23.7 + 9.4);
+    float dU = fract(lambda + dPhase + uTime * dFallRate * 0.5);
+    float spawnFade = smoothstep(0.0, 0.14, dU);
+    float dissolve = 1.0 - smoothstep(0.82, 1.0, dU);
+    compAlpha *= spawnFade * dissolve;
+    gain *= 0.82 + 0.35 * dissolve;
   }
   float depth = clamp(pos.z * 2.1 + 0.5, 0.0, 1.0);
+
+  // Crystal pulse — a single column fires a bright front down its length
+  // on a slow cadence. Composed before sprite sizing and shading.
+  if (uFormation == LAB_FORMATION_DRAGUNOV && uFormationDetail != 0) {
+    float period = uFormationDetail == 2 ? 1.3 : 1.8;
+    float n = floor(uTime / period);
+    float local = fract(uTime / period);
+    float pulsePhase = local * local * (3.0 - 2.0 * local);
+    float pulseY = mix(0.98, -1.08, pulsePhase);
+    float targetSheet = mod(n, 3.0);
+    if (abs(comp - targetSheet) < 0.5) {
+      float cols = dragunovColsFor(comp);
+      float targetCol = floor(mod(n * 3.71 + 1.3, cols));
+      if (abs(dragunovColumnIndex(seed, comp) - targetCol) < 0.5) {
+        float pulse = exp(-pow((pos.y - pulseY) * 5.0, 2.0));
+        gain *= 1.0 + pulse * 1.5;
+        compAlpha *= 1.0 + pulse * 1.1;
+        if (pulse > 0.25) spark = 1.0;
+      }
+    }
+  }
 
   vec2 screenVel = vec2(vel.x / uAspect, vel.y);
   float speed = length(screenVel);
   vec2 screenDir = speed > 1e-4 ? screenVel / speed : vec2(0.0, 1.0);
   vec2 perp = vec2(-screenDir.y, screenDir.x);
   float stretch = uStretchBase + min(speed, 2.5) * uStretchSpeed + spark * 0.55;
-  float sizeScale = uFormation == LAB_FORMATION_JIN ? 1.0 : claudioSizeScale(seed);
+  float sizeScale = uFormation == LAB_FORMATION_JIN
+    ? 1.0
+    : (uFormation == LAB_FORMATION_CLAUDIO ? claudioSizeScale(seed) : dragunovSizeScale(seed));
   float basePx = mix(1.7, 4.0, labHash11(seed * 91.7 + 3.1)) * uSize * uDpr
                * (0.82 + 0.46 * depth) * (1.0 - spark * 0.18) * sizeScale;
 
@@ -633,18 +806,19 @@ void main() {
   if (uFormation == LAB_FORMATION_JIN) {
     float heat = clamp(0.35 + lambda * 0.45 + labHash11(seed * 37.0) * 0.2, 0.0, 1.0);
     color = mix(uTintA, uTintB, clamp(heat * 0.8 + spark, 0.0, 1.0));
-  } else if (comp < 0.5) {
-    color = mix(uTintB, vec3(1.0), 0.32);
-  } else if (comp < 1.5) {
-    color = mix(uTintA, uTintB, 0.35);
-  } else if (comp < 2.5) {
-    color = uTintA;
-  } else if (comp < 3.5) {
-    color = mix(uTintA, uTintB, 0.65);
-  } else if (comp < 4.5) {
-    color = mix(uTintB, uFog, 0.30);
+  } else if (uFormation == LAB_FORMATION_CLAUDIO) {
+    if (comp < 0.5) color = mix(uTintB, vec3(1.0), 0.32);
+    else if (comp < 1.5) color = mix(uTintA, uTintB, 0.35);
+    else if (comp < 2.5) color = uTintA;
+    else if (comp < 3.5) color = mix(uTintA, uTintB, 0.65);
+    else if (comp < 4.5) color = mix(uTintB, uFog, 0.30);
+    else color = mix(uTintA, uTintB, 0.25);
   } else {
-    color = mix(uTintA, uTintB, 0.25);
+    // Dragunov — fog-drenched far sheet, steel mid, frost-tipped near.
+    if (spark > 0.5) color = mix(uTintB, vec3(1.0), 0.30);
+    else if (comp < 0.5) color = mix(uTintA, uFog, 0.55);
+    else if (comp < 1.5) color = uTintA;
+    else color = mix(uTintA, uTintB, 0.32);
   }
   color = mix(color, uFog, (1.0 - depth) * 0.34);
   vColor = color * (0.90 + 0.52 * depth) * gain;

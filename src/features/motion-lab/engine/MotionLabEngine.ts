@@ -620,6 +620,7 @@ export class MotionLabEngine {
       'uPosition',
       'uVelocity',
       'uSimSize',
+      'uTime',
       'uResolution',
       'uAspect',
       'uDpr',
@@ -1337,6 +1338,7 @@ export class MotionLabEngine {
       gl.uniform1i(this.gpgpuUniforms.uPosition, 0);
       gl.uniform1i(this.gpgpuUniforms.uVelocity, 1);
       gl.uniform1i(this.gpgpuUniforms.uSimSize, SIM_SIZE);
+      gl.uniform1f(this.gpgpuUniforms.uTime, this.simTime);
       gl.uniform2f(this.gpgpuUniforms.uResolution, width, height);
       gl.uniform1f(this.gpgpuUniforms.uAspect, aspect);
       gl.uniform1f(this.gpgpuUniforms.uDpr, dpr);

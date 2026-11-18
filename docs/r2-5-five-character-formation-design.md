@@ -705,3 +705,25 @@ This milestone delivers only this document. Proposed next action: owner review o
 **Still pending:** Dragunov Frost Curtain, Victor Precision Dial, Lars Bolt Filament (R2.5-2…R2.5-4); per-formation glyph law beyond the shared streak sprite; pulse envelopes; full Tier 1 identity audit for non-implemented formations; Tier 2 owner visual sign-off of Claudio.
 
 *R2.5-1 verification: tsc, isolated build, tier matrix, fallbacks, switching, context loss/restore, resize, reduced motion — all pass; Jin regression within gate; captures stored under `artifacts/motion-lab/verification/` (local only, gitignored).*
+
+---
+
+## 19. Implementation status (R2.5-2, recorded after implementation)
+
+**What shipped:** Jin (approved reference) + **Claudio — Radiant Orbit** (R2.5-1, committed) + **Dragunov — Frost Curtain** are implemented and selectable in the isolated lab. Victor and Lars remain inert schema entries (`implemented: false`).
+
+**Delivered behaviour vs this document:**
+- **Three depth-layered sheets** (far z = −0.19 with 6-column span ±1.15, mid z = 0.0 with 7-column span ±1.25, near z = +0.19 with 7-column span ±1.35). Per-sheet fog depth, column jitter (±0.05), and cross-section gaussian per sheet (σ ≈ 0.022 + 0.005·sheet index) keep the streams distinct without a snowstorm. [Matches §3.3 / §4.2 / §5.4 of this document.]
+- **Column assignment** is hash-derived per particle (`floor(hash11(seed·13.7 + sheet·91 + 7) · cols)`) — deterministic from the existing seed — using the same hash family as Jin/Claudio; no new random sources. Columns spread uniformly over the span (hash-clustered, no overlap).
+- **Motion:** vertical sawtooth fall (`fract(λ + phase + t·fallRate)` with fallRate ≈ 0.08–0.12 λ·s⁻¹) — home moves through y ∈ (−1.08, +0.98), governed by a **bounded sway** instead of the document's original "lateral shear 0.05–0.08" (the sway is ±0.025); **dissolution** fades chips in at the crown (u < 0.14) and out at the base (u > 0.82), and a crystal pulse travels down one column at a time (≥1.8 s intervals; T3 uses 1.3 s).
+- **Spring behaviour:** the shared gaussian disturbance splits the curtain; swirling interaction cuts a visible cavity and it springs back with the columns intact. The fall dominates mean displacement (≈ 0.27), meaning the metric is no longer comparable to Jin/Claudio — nausea of that reading is a fingerprint of Dragunov, not a defect. [Verified.]
+- **Tier behaviour:** T1 → single mid sheet, 6 columns, 450 particles. T2 → 3 sheets × 6/7/7 columns (canonical). T3 → 9-column subdivision + 8 % drifting fragments + T1-style sub-columns. Tier counts unchanged (450 / 1100 / 2200).
+- **Atmosphere (mode 2):** steel void with a faint low "low-sun" slit at the base, vertical fbm streak haze, subtle vignette. Jin mode 0 and Claudio mode 1 unchanged.
+- **Implementation defect found and fixed during R2.5-2 (before commit):** the JS ↔ GLSL mirror mismatch (seed/lambda were stored in RGBA16F, but JS/uSeb JS mirror computed home with the full-precision float64 values rather than the half-float-stored values, flipping sheet/column assignments via hash amplification). Fix: JS mirror switched to bit-exact float32 (`Math.fround`) via the shader-registries hash functions, and the seeder rounds lambda and seed through the same half-precision the textures use, via `Float16Array` round-trip. Displacement at rest dropped from ≈ 0.87 → ≈ 0.01 (Jin/Claudio baseline intact).
+- **Deviation from sketch (§3.3/§6.1):** the fall cycle replaces the document's original "triangle wave" intermediate iteration — continuous-downward sawtooth with dissolution fade instead 0.02 in-axis — the same spec the document describes as "particles cycle top → bottom along λ ∈ [0,1)" [Matches]; the triangle-wave intermediate was unsuitable (piles at extremes).
+
+**Measured (same session, GPU medians, 128 KB allocation, 4 draws):** Dragunov T2 ≈ 0.53 ms at 390×844, ≈ 0.97 ms at 1440×900 (environment shifted ~2.5× across all formations this session, so relative standing is what matters; Jin and Claudio never exceeded the ±10 % gate). Analytic fallback verified in-canvas (`?nofloat`).
+
+**Still pending:** Victor Precision Dial, Lars Bolt Filament (R2.5-3…R2.5-4); per-formation glyph system beyond the shared chip sprite; Tier 2 owner visual sign-off of Dragunov.
+
+*R2.5-2 verification: tsc, isolated build, tier matrix across three viewports, fallbacks (`?nofloat`, `?notimer`, reduced motion), switching (Jin↔Claudio↔Dragunov repeatedly, while paused, reset with Dragunov active, tier round-trips with Dragunov active), context loss/restore with Dragunov active (formation preserved, float verified, 4 draws), GPU/CPU timing recorded separately, zero console/GL errors; Jin and Claudio untouched and within gate; captures stored under `artifacts/motion-lab/verification/` (local only, gitignored).*

@@ -115,14 +115,14 @@ export const FORMATIONS: Record<FormationId, FormationDefinition> = {
     id: 'dragunov',
     character: 'Sergei Dragunov',
     name: 'Frost Curtain',
-    title: 'Planned formation â€” not implemented',
-    implemented: false,
+    title: 'The approved frozen-curtain formation',
+    implemented: true,
     glyph: 'chip',
     radius: 1.25,
     spring: 2.4,
-    curlScale: 1,
-    stretchBase: 1.0,
-    stretchSpeed: 0.35,
+    curlScale: 0.6,
+    stretchBase: 2.1,
+    stretchSpeed: 0.9,
     depth: 'sheets',
     atmosphere: { mode: 2, anchor: [0, -0.7], band: 1, pulsePeriod: 0 },
     palette: {
@@ -244,8 +244,22 @@ export const TIER_CONFIG: Record<1 | 2 | 3, TierConfig> = {
   3: { particles: 2200, filaments: 6, pointerRadius: 0.2, octaves: 5, gpgpu: true },
 };
 
-function fract(value: number): number {
-  return value - Math.floor(value);
+const F32 = Math.fround;
+const fadd = (a: number, b: number): number => F32(F32(a) + F32(b));
+const fsub = (a: number, b: number): number => F32(F32(a) - F32(b));
+const fmul = (a: number, b: number): number => F32(F32(a) * F32(b));
+const fdiv = (a: number, b: number): number => F32(F32(a) / F32(b));
+
+function fractF(value: number): number {
+  return F32(value - Math.floor(value));
+}
+
+/** JS mirror of labHash11 in the shaders — bit-exact float32 semantics. */
+function hash11(value: number): number {
+  let p = fractF(fmul(F32(value), 0.1031));
+  p = fmul(p, fadd(p, 33.33));
+  p = fmul(p, fadd(p, p));
+  return fractF(p);
 }
 
 function smoothstep(edge0: number, edge1: number, value: number): number {
@@ -253,17 +267,156 @@ function smoothstep(edge0: number, edge1: number, value: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** JS mirror of labHash11 in the shaders (deterministic particle identity). */
-export function hash11(value: number): number {
-  let p = fract(value * 0.1031);
-  p *= p + 33.33;
-  p *= p + p;
-  return fract(p);
+/** JS mirror of formationLambda: near-uniform arc-length spacing. */
+export function formationLambda(base: number): number {
+  return Math.fround(
+    Math.fround(base) +
+      0.05 * Math.sin(F32(F32(Math.PI * 2 * Math.fround(base)))),
+  );
 }
 
-/** JS mirror of formationLambda: near-uniform arc-length spacing along the spiral. */
-export function formationLambda(base: number): number {
-  return base + 0.05 * Math.sin(Math.PI * 2 * base);
+/**
+ * Round a number through IEEE half precision, as the RGBA16F textures do.
+ * Exact for values in [-2^16, 2^16) with no subnormal underflow; the seeded
+ * seeds/lambdas both live in [0, 1).
+ */
+function roundHalfFloat(value: number): number {
+  if (value === 0) return 0;
+  const a = Math.abs(value);
+  const sign = value < 0 ? -1 : 1;
+  if (a >= 65504) return sign * 65504;
+  if (a < 2 ** -24) return sign * 0;
+  if (a >= 2 ** -14) {
+    const E = Math.floor(Math.log2(a));
+    if (E > 15) return sign * 65504;
+    const eField = E + 15;
+    const mant = a / Math.pow(2, E) - 1;
+    let mantBits = Math.floor(mant * 1024);
+    const frac = mant * 1024 - mantBits;
+    if (frac > 0.5 || (frac === 0.5 && (mantBits & 1) === 1)) {
+      mantBits += 1;
+      if (mantBits === 1024) {
+        const e2 = eField + 1;
+        if (e2 >= 31) return sign * 65504;
+        return sign * Math.pow(2, E + 1);
+      }
+    }
+    return sign * Math.pow(2, E) * (1 + mantBits / 1024);
+  }
+  // Subnormal: value = m * 2^-24, m in [0, 1023]
+  const mant = a * 16777216;
+  let m = Math.floor(mant);
+  const frac = mant - m;
+  if (frac > 0.5 || (frac === 0.5 && (m & 1) === 1)) m += 1;
+  if (m >= 1024) return sign * Math.pow(2, -14);
+  return sign * m / 16777216;
+}
+
+const DRAGUNOV_SHEET_CONFIG = [
+  { minX: -1.15, maxX: 1.15, cols: 6 },
+  { minX: -1.25, maxX: 1.25, cols: 7 },
+  { minX: -1.35, maxX: 1.35, cols: 7 },
+] as const;
+const DRAGUNOV_T3_COLS = 9;
+const DRAGUNOV_ZSHEET = [-0.19, 0.0, 0.19] as const;
+
+/** Dragunov sheet index; mirrors dragunovSheet() in the shaders. */
+export function dragunovSheet(seed: number, detail: FormationDetail): number {
+  if (detail === 0) return 1;
+  if (seed < 0.36) return 0;
+  if (seed < 0.68) return 1;
+  return 2;
+}
+
+/** Column index for a Dragunov particle (stable per seed + sheet). */
+export function dragunovColumnIndex(
+  seed: number,
+  sheet: number,
+  detail: FormationDetail,
+): number {
+  const cols =
+    detail === 2 ? DRAGUNOV_T3_COLS : DRAGUNOV_SHEET_CONFIG[sheet].cols;
+  const arg = fadd(fadd(fmul(seed, 13.7), fmul(sheet, 91.0)), 7.0);
+  return Math.floor(fmul(hash11(arg), cols));
+}
+
+/** Stable per-column identity (jitter / lengthMul). */
+export function dragunovColumnHash(sheet: number, index: number): number {
+  const arg = fadd(fadd(fmul(index, 3.71), fmul(sheet, 17.3)), 3.1);
+  return hash11(arg);
+}
+
+/**
+ * Mirror of dragunovHome. Three depth-layered sheets of vertical columns with
+ * controlled dissolution and restrained fall. The "web" of columns is the
+ * silhouette; particles cycle top to bottom with per-particle phase spread.
+ */
+function dragunovHome(
+  lambda: number,
+  seed: number,
+  time: number,
+  detail: FormationDetail,
+): [number, number, number] {
+  const comp = detail === 0 ? 1 : dragunovSheet(seed, detail);
+  const cfg = DRAGUNOV_SHEET_CONFIG[comp];
+  const cols = detail === 2 ? DRAGUNOV_T3_COLS : cfg.cols;
+  const index = dragunovColumnIndex(seed, comp, detail);
+  const colHash = dragunovColumnHash(comp, index);
+
+  const base = fadd(
+    cfg.minX,
+    fmul(fdiv(fadd(index, 0.5), cols), fsub(cfg.maxX, cfg.minX)),
+  );
+  let x = fadd(base, fmul(fsub(colHash, 0.5), 0.06));
+  const gauss = fmul(
+    fsub(
+      fadd(
+        fadd(
+          hash11(fadd(fmul(seed, 29.1), 2.4)),
+          hash11(fadd(fmul(seed, 41.7), 3.1)),
+        ),
+        hash11(fadd(fmul(seed, 53.3), 5.9)),
+      ),
+      1.5,
+    ),
+    2.0,
+  );
+  x = fadd(x, fmul(gauss, fadd(0.022, fmul(comp, 0.005))));
+
+  // Lateral crossed-sheet columns lose a little speed near the gust
+  // centreline; kept restrained to preserve the frozen silhouette.
+  x = fadd(
+    x,
+    fmul(0.025, Math.sin(fadd(fadd(fmul(time, 0.55), fmul(comp, 2.3)), fmul(x, 0.6)))),
+  );
+
+  // Wavy sheet warp — in-plane fbm proxy, identical in GLSL.
+  const warp = fadd(
+    fmul(0.055, Math.sin(fadd(fadd(fmul(x, 2.3), fmul(time, 0.25)), fmul(comp, 2.1)))),
+    fmul(0.03, Math.sin(fadd(fsub(fmul(x, 4.9), fmul(time, 0.4)), comp))),
+  );
+
+  // Fragments in T3 drift slightly off the sheet — broken ice, not a wall of glass.
+  if (detail === 2 && hash11(fadd(fmul(seed, 57.7), 13.1)) > 0.92) {
+    x = fadd(x, fmul(fsub(hash11(fadd(fmul(seed, 41.3), 8.8)), 0.5), 0.16));
+  }
+
+  const fallRate = fadd(0.16, fmul(0.08, hash11(fadd(fmul(seed, 47.3), 11.1))));
+  const phase = hash11(fadd(fmul(seed, 23.7), 9.4));
+  // Linear downward fall. Particles fade at the extremes, so the respawn
+  // wrap is invisible to both the eye and the spring.
+  const u = fractF(F32(F32(F32(lambda) + F32(phase)) + F32(F32(F32(time) * F32(fallRate)) * 0.5)));
+  const yMix = fadd(0.98, fmul(fsub(-1.08, 0.98), u));
+  const y = fadd(
+    yMix,
+    fmul(fsub(hash11(fadd(fmul(seed, 61.7), 3.3)), 0.5), 0.024),
+  );
+  const z = fadd(
+    DRAGUNOV_ZSHEET[comp],
+    fadd(fmul(warp, 0.55), fmul(fsub(hash11(fadd(fmul(seed, 33.1), 7.7)), 0.5), 0.04)),
+  );
+
+  return [x, y, z];
 }
 
 /** JS mirror of jinHome. Used only to seed the GPGPU textures; the shader
@@ -427,12 +580,13 @@ function claudioHome(
 }
 
 /**
- * Formation-aware home evaluation. `jin` and `claudio` are implemented; any
- * other id throws rather than fabricates geometry. Used by the engine's
- * readback mirror and seeding path â€” the shader path goes through
- * FORMATION_GLSL. `detail` selects the tier-aware component partition for
- * Claudio (0 = Tier 1 lite, 1 = Tier 2 canonical, 2 = Tier 3 high); Jin
- * ignores it.
+/**
+ * Formation-aware home evaluation. Implemented ids route to their per-
+ * formation function; any other id throws rather than fabricates geometry.
+ * Used by the engine readback mirror and seeding path; the shader path
+ * goes through FORMATION_GLSL. detail selects the tier-aware component
+ * partition for Claudio and Dragunov (0 = Tier 1 lite, 1 = canonical,
+ * 2 = high); Jin ignores it.
  */
 export function formationHome(
   formationId: FormationId,
@@ -450,6 +604,9 @@ export function formationHome(
   if (formationId === 'claudio') {
     return claudioHome(lambda, seed, time, detail);
   }
+  if (formationId === 'dragunov') {
+    return dragunovHome(lambda, seed, time, detail);
+  }
   throw new Error(`Formation "${formationId}" has no home function.`);
 }
 
@@ -462,8 +619,9 @@ export interface InitialParticleState {
  * One texel = one particle. RGB is position/velocity, position.w is the stable
  * seed, velocity.w is the formation coordinate lambda. Only implemented ids
  * may be seeded; anything else throws before any GPU state is written. Jin
- * seeds interleaved filaments; Claudio seeds serially (ring lambda is the
- * arc itself, so the distribution is uniform by construction).
+ * seeds interleaved filaments; Claudio and Dragunov seed serially (the
+ * lambda coordinate is arc / fall position directly, so distribution stays
+ * uniform by construction).
  */
 export function buildInitialState(
   size: number,
@@ -492,8 +650,8 @@ export function buildInitialState(
     const base = active
       ? (Math.floor(index / streams) + 0.5 + stagger) / rows
       : hash11(index * 3.71 + 1.23);
-    const lambda = formationLambda(base);
-    const seed = hash11(index * 1.37 + 4.11);
+    const lambda = roundHalfFloat(formationLambda(base));
+    const seed = roundHalfFloat(hash11(index * 1.37 + 4.11));
     const filament = index % streams;
     const home = formationHome(
       formationId,
