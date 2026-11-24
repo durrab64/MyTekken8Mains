@@ -4,7 +4,9 @@ import { environments } from './environments';
 import type { EnvironmentConfig } from './environments';
 import { ART, atmosphereFragmentSource, atmosphereVertexSource } from './shaders';
 import { createParticles, applyParticleEnv, drawParticles, destroyParticles } from './particles';
-import type { Particles } from './particles';
+import type { ParticlePaletteOverride, Particles } from './particles';
+import { FORMATION_INDEX, type FormationId } from './formation';
+import { FORMATION_PARTICLE_PALETTE, FORMATION_RADIUS, FORMATION_TIER_FILAMENTS } from './formationRestoration';
 
 export type EntryTier = 'tier0' | 'tier1' | 'tier2' | 'tier3';
 export type CapTier = 'tier1' | 'tier2' | 'tier3';
@@ -67,6 +69,7 @@ export function createRenderer(): Renderer {
     heroVisible: false,
     disposed: true,
     debug: false,
+    currentFormation: null as FormationId | null,
   };
   const wipe: { from: WipeSnapshot | null; to: EnvironmentConfig | null; start: number; reseeded: boolean; active: boolean } = { from: null, to: null, start: 0, reseeded: true, active: false };
   const ptrW = { x: 0.5, y: 0.5 };
@@ -86,6 +89,7 @@ export function createRenderer(): Renderer {
   let artTex: WebGLTexture | null = null;
   let artState: ArtState = 0;
   let canvasEl: HTMLCanvasElement | null = null;
+  let formationEl: HTMLElement | null = null;
   let rafId = 0;
   let running = false;
   let startSeconds = 0;
@@ -147,6 +151,53 @@ export function createRenderer(): Renderer {
   }
   const isCapTier = (tier: EntryTier): tier is CapTier => tier === 'tier1' || tier === 'tier2' || tier === 'tier3';
 
+const formationDetailForTier = (tier: EntryTier): 'tier1' | 'tier2' | 'tier3' | null => {
+  if (tier === 'tier1' || tier === 'tier2' || tier === 'tier3') return tier;
+  return null;
+};
+  function currentFormationState(): { id: FormationId; index: number; detail: number; radius: number; filaments: number } | null {
+    const id = state.currentFormation;
+    if (!id) return null;
+    const detailKey = formationDetailForTier(state.entryTier) ?? 'tier2';
+    const detail = detailKey === 'tier1' ? 0 : detailKey === 'tier2' ? 1 : 2;
+    return {
+      id,
+      index: FORMATION_INDEX[id],
+      detail,
+      radius: FORMATION_RADIUS[id],
+      filaments: FORMATION_TIER_FILAMENTS[detailKey],
+    };
+  }
+  function particlePaletteOverride(formation: { id: FormationId }): ParticlePaletteOverride | null {
+    if (formation.id === 'lars') return null;
+    return { ...FORMATION_PARTICLE_PALETTE[formation.id], size: 1, gain: 1 };
+  }
+  function applyParticleFormation(env: EnvironmentConfig): void {
+    if (!gl || !particles) return;
+    const formation = currentFormationState();
+    if (!formation) return;
+    applyParticleEnv(
+      gl,
+      particles,
+      env,
+      formation.radius,
+      formation.filaments,
+      formation.index,
+      formation.detail,
+      particlePaletteOverride(formation),
+    );
+  }
+  function applyFormationUniforms(): void {
+    if (!gl || !particles) return;
+    const formation = currentFormationState();
+    if (!formation) return;
+    gl.useProgram(particles.program);
+    gl.uniform1f(particles.u.uFormationRadius, formation.radius);
+    gl.uniform1f(particles.u.uFilaments, formation.filaments);
+    gl.uniform1i(particles.u.uFormation, formation.index);
+    gl.uniform1i(particles.u.uFormationDetail, formation.detail);
+  }
+
   function compileShader(type: number, source: string): WebGLShader {
     const shader = gl!.createShader(type);
     if (!shader) throw new Error('shader creation failed');
@@ -178,7 +229,7 @@ export function createRenderer(): Renderer {
     return linked;
   }
   function locateUniforms(): Record<string, WebGLUniformLocation | null> {
-    const names = ['uTime', 'uResolution', 'uPointer', 'uWipe', 'uDeep', 'uFog', 'uGlow', 'uVein', 'uOctaves', 'uMode', 'uArtRect'];
+    const names = ['uTime', 'uResolution', 'uPointer', 'uWipe', 'uDeep', 'uFog', 'uGlow', 'uVein', 'uOctaves', 'uMode', 'uArtRect', 'uFormation', 'uFormationDetail'];
     const map: Record<string, WebGLUniformLocation | null> = {};
     for (const name of names) map[name] = gl!.getUniformLocation(program!, name);
     return map;
@@ -241,7 +292,7 @@ export function createRenderer(): Renderer {
   function applyEnvironment(env: EnvironmentConfig): void {
     copy(disp, env);
     flushEnv();
-    if (particles) applyParticleEnv(gl!, particles, env);
+    applyParticleFormation(env);
   }
   function applyTierCaps(tier: CapTier): void {
     const g = gl!;
@@ -251,6 +302,7 @@ export function createRenderer(): Renderer {
     if (program) g.useProgram(program);
     g.uniform1i(uniforms!.uOctaves, caps.octaves);
     resizeBackingStore(caps);
+    applyFormationUniforms();
   }
   function resizeBackingStore(caps: TierCap = TIER_CAPS[isCapTier(state.entryTier) ? state.entryTier : 'tier2']): void {
     if (!gl || !canvasEl) return;
@@ -357,6 +409,46 @@ export function createRenderer(): Renderer {
     state.initialized = true;
     void bootBackend('restored');
   }
+  function formationRegion(): HTMLElement | null {
+    if (formationEl && !formationEl.isConnected) formationEl = null;
+    if (!formationEl) {
+      formationEl = document.querySelector<HTMLElement>('[data-fx-region="hero"]');
+    }
+    return formationEl;
+  }
+
+  /**
+   * Convert the hero's formation field into WebGL viewport coordinates.
+   *
+   * The canvas stays full-bleed (one context, one RAF), but the particle pass
+   * is clipped to this rectangle so formations read as a dedicated field
+   * beside the character instead of a page-wide background. The shader's
+   * aspect uniform is set to the region aspect, so geometry is never
+   * stretched; no formation geometry or pulse values are modified.
+   */
+  function formationViewport(el: HTMLElement): { x: number; y: number; w: number; h: number } | null {
+    if (!gl || !canvasEl) return null;
+    const rect = el.getBoundingClientRect();
+    const cssW = canvasEl.clientWidth || 1;
+    const cssH = canvasEl.clientHeight || 1;
+    const left = Math.max(0, rect.left);
+    const right = Math.min(cssW, rect.right);
+    const top = Math.max(0, rect.top);
+    const bottom = Math.min(cssH, rect.bottom);
+    if (right - left < 24 || bottom - top < 24) return null;
+
+    const bufferW = gl.drawingBufferWidth || canvasEl.width;
+    const bufferH = gl.drawingBufferHeight || canvasEl.height;
+    const sx = bufferW / cssW;
+    const sy = bufferH / cssH;
+    return {
+      x: Math.floor(left * sx),
+      y: Math.floor((cssH - bottom) * sy),
+      w: Math.max(1, Math.floor((right - left) * sx)),
+      h: Math.max(1, Math.floor((bottom - top) * sy)),
+    };
+  }
+
   function startLoop(): void {
     if (running || document.hidden || !gl) return;
     running = true;
@@ -375,6 +467,9 @@ export function createRenderer(): Renderer {
       governTier(now);
       const g = gl!;
       const u = uniforms!;
+      const bufferW = g.drawingBufferWidth || 1;
+      const bufferH = g.drawingBufferHeight || 1;
+      g.viewport(0, 0, bufferW, bufferH);
       if (wipe.active && wipe.from && wipe.to) {
         const k = Math.min(1, (now - wipe.start) / 380);
         const ease = 1 - Math.pow(1 - k, 3);
@@ -386,7 +481,7 @@ export function createRenderer(): Renderer {
         flushEnv();
         g.uniform1f(u.uWipe, k);
         if (k >= 0.5 && !wipe.reseeded) {
-          if (particles) applyParticleEnv(g, particles, wipe.to);
+          applyParticleFormation(wipe.to);
           wipe.reseeded = true;
         }
         if (k >= 1) wipe.active = false;
@@ -428,7 +523,24 @@ export function createRenderer(): Renderer {
       g.uniform1f(u.uTime, tSec);
       artFrame();
       g.drawArrays(g.TRIANGLES, 0, 3);
-      if (particles && particleCount > 0) drawParticles(g, particles, tSec, particleCount);
+      if (particles && particleCount > 0) {
+        const region = formationRegion();
+        if (region) {
+          const vp = formationViewport(region);
+          if (vp) {
+            g.viewport(vp.x, vp.y, vp.w, vp.h);
+            g.useProgram(particles.program);
+            g.uniform1f(particles.u.uAspect, vp.w / vp.h);
+            drawParticles(g, particles, tSec, particleCount);
+            g.viewport(0, 0, bufferW, bufferH);
+          }
+        } else {
+          /* Legacy fallback if the hero region is absent. */
+          g.useProgram(particles.program);
+          g.uniform1f(particles.u.uAspect, bufferW / bufferH);
+          drawParticles(g, particles, tSec, particleCount);
+        }
+      }
       frameCount += 1;
     };
     rafId = requestAnimationFrame(frame);
@@ -515,7 +627,11 @@ export function createRenderer(): Renderer {
       gl.uniform2f(uniforms.uPointer, 0.5, 0.5);
       gl.uniform1f(uniforms.uWipe, 1.0);
       particles = createParticles(gl);
+      state.currentFormation = state.environment as FormationId;
       applyEnvironment(environments[normalizeEnvironment(state.environment)] ?? environments.jin);
+      gl.useProgram(program);
+      gl.uniform1i(uniforms.uFormation, FORMATION_INDEX[state.currentFormation]);
+      gl.uniform1i(uniforms.uFormationDetail, 1);
       applyTierCaps(isCapTier(tier as EntryTier) ? (tier as CapTier) : 'tier2');
       gpuTimerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2') as TimerExt | null;
     } catch (error) {
@@ -584,6 +700,7 @@ export function createRenderer(): Renderer {
     const env = normalizeEnvironment(id);
     const same = state.environment === env;
     state.environment = env;
+    state.currentFormation = env as FormationId;
     document.body.dataset.env = env;
     if (gl && !same) {
       artImg = null;
@@ -596,7 +713,10 @@ export function createRenderer(): Renderer {
       if (uniforms) {
         gl.useProgram(program);
         gl.uniform1f(uniforms.uWipe, 0);
+        gl.uniform1i(uniforms.uFormation, FORMATION_INDEX[env as FormationId]);
+        gl.uniform1i(uniforms.uFormationDetail, 1);
       }
+      applyParticleFormation(environments[env] ?? environments.jin);
     }
     return env;
   }
