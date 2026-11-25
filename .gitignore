@@ -1,0 +1,6 @@
+node_modules
+dist
+dist-motion-lab
+artifacts/
+*.log
+.DS_Store
