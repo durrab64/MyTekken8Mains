@@ -2,13 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import Header from '../components/Header';
 import Footer from '../components/Footer';
 import Hero from '../components/Hero';
-import About from '../components/About';
-import Roster from '../features/roster/Roster';
-import Stage from '../features/character/Stage';
-import { characters } from '../data/characters';
+import Landing from '../components/Landing';
 import { createRenderer } from '../graphics/engine';
 import type { Renderer, FxTierchangeEvent } from '../graphics/engine';
-import { normalizeEnvironment } from '../graphics/fallback';
+import { normalizeEnvironment, CSS_ENVIRONMENTS } from '../graphics/fallback';
 import type { CharacterId } from '../graphics/fallback';
 import { atmosphereFragmentSource, atmosphereVertexSource } from '../graphics/shaders';
 
@@ -22,10 +19,15 @@ export default function App() {
   const [activeId, setActiveId] = useState<CharacterId>(() =>
     normalizeEnvironment(window.location.hash.slice(1)),
   );
+  const [isLanding, setIsLanding] = useState<boolean>(() =>
+    !(CSS_ENVIRONMENTS as readonly string[]).includes(window.location.hash.slice(1)),
+  );
 
   useEffect(() => {
     const onHashChange = () => {
-      setActiveId(normalizeEnvironment(window.location.hash.slice(1)));
+      const hash = window.location.hash.slice(1);
+      setActiveId(normalizeEnvironment(hash));
+      setIsLanding(!(CSS_ENVIRONMENTS as readonly string[]).includes(hash));
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
@@ -76,12 +78,7 @@ export default function App() {
       <a className="skip-link" href="#roster">Skip to the roster</a>
       <Header />
       <main id="top">
-        <Hero />
-        <Roster />
-        {characters.map((character) => (
-          <Stage key={character.id} character={character} active={character.id === activeId} />
-        ))}
-        <About />
+        {isLanding ? <Landing /> : <Hero activeId={activeId} />}
       </main>
       <Footer />
     </>
