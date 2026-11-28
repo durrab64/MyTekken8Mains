@@ -106,9 +106,9 @@ export default function Landing() {
             IS PERSONAL.
           </h1>
           <p className="landing-lede">
-            A curated archive of the characters, formations, and playstyles that
-            define SLEDGE. Enter a fighter to view their dedicated stage, signature
-            formation, and personal notes.
+            SLEDGE's Tekken 8 mains archive: the characters, formations, and
+            playstyles behind his five-fighter roster. Enter a fighter to view their
+            dedicated stage, signature formation, and personal notes.
           </p>
           <div className="landing-actions">
             <a className="btn btn-primary" href="#jin">

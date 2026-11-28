@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://mytekken8mains.web.app/sitemap-1.xml
