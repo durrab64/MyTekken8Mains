@@ -7,6 +7,7 @@ import { createParticles, applyParticleEnv, drawParticles, destroyParticles } fr
 import type { ParticlePaletteOverride, Particles } from './particles';
 import { FORMATION_INDEX, type FormationId } from './formation';
 import { FORMATION_PARTICLE_PALETTE, FORMATION_RADIUS, FORMATION_TIER_FILAMENTS } from './formationRestoration';
+import { NEUTRAL_FORMATION_POINTER, normalizePointerToRegion } from './pointerRegion';
 
 export type EntryTier = 'tier0' | 'tier1' | 'tier2' | 'tier3';
 export type CapTier = 'tier1' | 'tier2' | 'tier3';
@@ -66,6 +67,7 @@ export function createRenderer(): Renderer {
     quality: 'auto' as QualityChoice,
     entryTier: 'tier2' as EntryTier,
     pointer: { x: 0.5, y: 0.5 },
+    formationPointer: { x: NEUTRAL_FORMATION_POINTER.x, y: NEUTRAL_FORMATION_POINTER.y },
     heroVisible: false,
     disposed: true,
     debug: false,
@@ -73,6 +75,8 @@ export function createRenderer(): Renderer {
   };
   const wipe: { from: WipeSnapshot | null; to: EnvironmentConfig | null; start: number; reseeded: boolean; active: boolean } = { from: null, to: null, start: 0, reseeded: true, active: false };
   const ptrW = { x: 0.5, y: 0.5 };
+  const formPtrW = { x: NEUTRAL_FORMATION_POINTER.x, y: NEUTRAL_FORMATION_POINTER.y };
+  let formationPointerActive = false;
   const disp: WipeSnapshot = { deep: [0, 0, 0], fog: [0, 0, 0], glow: [0, 0, 0], vein: [0, 0, 0], mode: 0 };
   const listeners: Record<FxEventType, Set<(payload: FxEvent) => void>> = {
     tierchange: new Set(),
@@ -333,6 +337,9 @@ const formationDetailForTier = (tier: EntryTier): 'tier1' | 'tier2' | 'tier3' | 
     frameCount = 0;
     frameDeltas.length = 0;
     wipe.active = false;
+    deactivateFormationPointer();
+    formPtrW.x = NEUTRAL_FORMATION_POINTER.x;
+    formPtrW.y = NEUTRAL_FORMATION_POINTER.y;
     gpuQuery = null;
     gpuMsSmoothed = null;
     if (gl && !lost) {
@@ -370,11 +377,13 @@ const formationDetailForTier = (tier: EntryTier): 'tier1' | 'tier2' | 'tier3' | 
     window.clearTimeout(resizeTimer);
   }
   function onWindowResize(): void {
+    deactivateFormationPointer();
     window.clearTimeout(resizeTimer);
     resizeTimer = window.setTimeout(() => resizeBackingStore(), 150);
   }
   function onVisibilityChange(): void {
     if (document.hidden) {
+      deactivateFormationPointer();
       cancelAnimationFrame(rafId);
       rafId = 0;
       running = false;
@@ -415,6 +424,32 @@ const formationDetailForTier = (tier: EntryTier): 'tier1' | 'tier2' | 'tier3' | 
       formationEl = document.querySelector<HTMLElement>('[data-fx-region="hero"]');
     }
     return formationEl;
+  }
+  function deactivateFormationPointer(): void {
+    formationPointerActive = false;
+    state.formationPointer.x = NEUTRAL_FORMATION_POINTER.x;
+    state.formationPointer.y = NEUTRAL_FORMATION_POINTER.y;
+  }
+  function resetFormationPointer(): void {
+    deactivateFormationPointer();
+    formPtrW.x = NEUTRAL_FORMATION_POINTER.x;
+    formPtrW.y = NEUTRAL_FORMATION_POINTER.y;
+    if (gl && particles) {
+      gl.useProgram(particles.program);
+      gl.uniform2f(particles.u.uPointer, formPtrW.x, formPtrW.y);
+    }
+  }
+  function activateFormationPointer(x: number, y: number): void {
+    const wasActive = formationPointerActive;
+    state.formationPointer.x = x;
+    state.formationPointer.y = y;
+    formationPointerActive = true;
+    if (!wasActive && gl && particles) {
+      formPtrW.x = x;
+      formPtrW.y = y;
+      gl.useProgram(particles.program);
+      gl.uniform2f(particles.u.uPointer, formPtrW.x, formPtrW.y);
+    }
   }
 
   /**
@@ -493,15 +528,22 @@ const formationDetailForTier = (tier: EntryTier): 'tier1' | 'tier2' | 'tier3' | 
       if (Math.abs(dxp) > 0.002 || Math.abs(dyp) > 0.002) {
         ptrW.x += dxp * (1 - Math.exp(-((delta || 16) / 1000) * 6));
         ptrW.y += dyp * (1 - Math.exp(-((delta || 16) / 1000) * 6));
-        if (particles) {
-          g.useProgram(particles.program);
-          g.uniform2f(particles.u.uPointer, ptrW.x, ptrW.y);
-        }
         g.useProgram(program);
         g.uniform2f(u.uPointer, ptrW.x, ptrW.y);
         document.documentElement.style.setProperty('--pdx', ((ptrW.x - 0.5) * 2).toFixed(3));
         document.documentElement.style.setProperty('--pdy', ((ptrW.y - 0.5) * 2).toFixed(3));
         document.documentElement.style.setProperty('--rim-g', Math.max(0, 1 - Math.hypot(ptrW.x - 0.5, ptrW.y - 0.55) / 0.8).toFixed(3));
+      }
+      const fpTarget = formationPointerActive ? state.formationPointer : NEUTRAL_FORMATION_POINTER;
+      const dfx = fpTarget.x - formPtrW.x;
+      const dfy = fpTarget.y - formPtrW.y;
+      if (Math.abs(dfx) > 0.002 || Math.abs(dfy) > 0.002) {
+        formPtrW.x += dfx * (1 - Math.exp(-((delta || 16) / 1000) * 6));
+        formPtrW.y += dfy * (1 - Math.exp(-((delta || 16) / 1000) * 6));
+        if (particles) {
+          g.useProgram(particles.program);
+          g.uniform2f(particles.u.uPointer, formPtrW.x, formPtrW.y);
+        }
       }
       if (!state.heroVisible) return;
       if (gpuTimerExt && frameCount % 60 === 30) {
@@ -627,6 +669,7 @@ const formationDetailForTier = (tier: EntryTier): 'tier1' | 'tier2' | 'tier3' | 
       gl.uniform2f(uniforms.uPointer, 0.5, 0.5);
       gl.uniform1f(uniforms.uWipe, 1.0);
       particles = createParticles(gl);
+      resetFormationPointer();
       state.currentFormation = state.environment as FormationId;
       applyEnvironment(environments[normalizeEnvironment(state.environment)] ?? environments.jin);
       gl.useProgram(program);
@@ -655,9 +698,31 @@ const formationDetailForTier = (tier: EntryTier): 'tier1' | 'tier2' | 'tier3' | 
       const onPointerMove = (e: PointerEvent) => {
         state.pointer.x = e.clientX / window.innerWidth;
         state.pointer.y = 1 - e.clientY / window.innerHeight;
+        const region = formationRegion();
+        if (region) {
+          const pointer = normalizePointerToRegion(e.clientX, e.clientY, region.getBoundingClientRect());
+          if (pointer) {
+            activateFormationPointer(pointer.x, pointer.y);
+            return;
+          }
+        } else {
+          // The landing stage uses the legacy full-viewport particle fallback.
+          activateFormationPointer(state.pointer.x, state.pointer.y);
+          return;
+        }
+        deactivateFormationPointer();
       };
       window.addEventListener('pointermove', onPointerMove, { passive: true });
       detach.push(() => window.removeEventListener('pointermove', onPointerMove));
+      const onPointerNeutral = () => deactivateFormationPointer();
+      document.documentElement.addEventListener('pointerleave', onPointerNeutral, { passive: true });
+      detach.push(() => document.documentElement.removeEventListener('pointerleave', onPointerNeutral));
+      window.addEventListener('pointercancel', onPointerNeutral, { passive: true });
+      detach.push(() => window.removeEventListener('pointercancel', onPointerNeutral));
+      window.addEventListener('blur', onPointerNeutral);
+      detach.push(() => window.removeEventListener('blur', onPointerNeutral));
+      window.addEventListener('scroll', onPointerNeutral, { passive: true });
+      detach.push(() => window.removeEventListener('scroll', onPointerNeutral));
     }
     try {
       dprMedia = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
@@ -701,6 +766,7 @@ const formationDetailForTier = (tier: EntryTier): 'tier1' | 'tier2' | 'tier3' | 
     const same = state.environment === env;
     state.environment = env;
     state.currentFormation = env as FormationId;
+    resetFormationPointer();
     document.body.dataset.env = env;
     if (gl && !same) {
       artImg = null;
@@ -723,15 +789,24 @@ const formationDetailForTier = (tier: EntryTier): 'tier1' | 'tier2' | 'tier3' | 
   const clamp01 = (value: number): number =>
     Number.isNaN(Number(value)) ? 0.5 : Math.min(1, Math.max(0, Number(value)));
   function setPointer(xNorm: number, yNorm: number): void {
-    state.pointer.x = clamp01(xNorm);
-    state.pointer.y = clamp01(yNorm);
+    const x = clamp01(xNorm);
+    const y = clamp01(yNorm);
+    state.pointer.x = x;
+    state.pointer.y = y;
+    state.formationPointer.x = x;
+    state.formationPointer.y = y;
+    formationPointerActive = true;
+    ptrW.x = x;
+    ptrW.y = y;
+    formPtrW.x = x;
+    formPtrW.y = y;
     if (gl && uniforms) {
       if (particles) {
         gl.useProgram(particles.program);
-        gl.uniform2f(particles.u.uPointer, state.pointer.x, state.pointer.y);
+        gl.uniform2f(particles.u.uPointer, x, y);
       }
       gl.useProgram(program);
-      gl.uniform2f(uniforms.uPointer, state.pointer.x, state.pointer.y);
+      gl.uniform2f(uniforms.uPointer, x, y);
     }
   }
   function setQuality(tier: string): void {
